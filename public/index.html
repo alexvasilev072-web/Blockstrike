@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlockStrike</title>
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- Вход -->
+<div id="join" class="screen">
+  <div class="card">
+    <h1>BLOCK<span>STRIKE</span></h1>
+    <p class="sub">Воксел тактически шутър • Нападатели срещу Защитници</p>
+    <label>Име<input id="name" maxlength="16" placeholder="Играч" autocomplete="off"></label>
+    <label>Код на стая <small>(празно = нова стая)</small><input id="room" maxlength="8" placeholder="напр. AB12" autocomplete="off"></label>
+    <button id="joinBtn" class="primary">Влез в играта</button>
+    <div id="joinErr" class="err"></div>
+  </div>
+</div>
+
+<!-- Лоби -->
+<div id="lobby" class="screen hidden">
+  <div class="card wide">
+    <div class="row between">
+      <h2>Стая <b id="lobCode"></b></h2>
+      <button id="copyLink">Копирай линк</button>
+    </div>
+    <div class="teams">
+      <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><button data-team="att">Премини тук</button></div>
+      <div class="team def"><h3>Защитници</h3><ul id="listDef"></ul><button data-team="def">Премини тук</button></div>
+    </div>
+    <div class="row">
+      <label class="grow">Карта<select id="mapSel"></select></label>
+      <button id="startBtn" class="primary">Старт</button>
+    </div>
+    <p id="mapDesc" class="sub"></p>
+    <p id="lobHint" class="sub"></p>
+    <details><summary>Управление</summary>
+      <p class="keys">WASD – движение • Мишка – оглеждане • Ляв клик – стрелба • Десен клик – мерник (снайпер) • R – презареждане • Space – скок<br>
+      B – магазин (в началото на рунда) • 1/2/3 – оръжие • E (дръж) – залагане / обезвреждане на бомбата • Tab – резултат</p>
+    </details>
+  </div>
+</div>
+
+<!-- Игра -->
+<div id="hud" class="hidden">
+  <div id="top">
+    <div id="scoreAtt" class="sc att">0</div>
+    <div id="timer">0:00</div>
+    <div id="scoreDef" class="sc def">0</div>
+  </div>
+  <div id="phaseTxt"></div>
+  <div id="bombTxt"></div>
+  <div id="moneyBox">$<span id="money">0</span></div>
+  <div id="killfeed"></div>
+  <div id="cross"><i></i><i></i><i></i><i></i></div>
+  <div id="hitmark"></div>
+  <div id="scope"></div>
+  <div id="vignette"></div>
+  <div id="bl"><div id="hp"><small>HP</small><b>100</b></div><div id="ar"><small>БРОНЯ</small><b>0</b></div></div>
+  <div id="br"><div id="wname"></div><div id="ammo"><b>0</b><span> / 0</span></div></div>
+  <div id="useBar" class="hidden"><div></div><span></span></div>
+  <div id="hint"></div>
+  <div id="toast"></div>
+  <div id="banner"></div>
+  <div id="spec" class="hidden"></div>
+  <div id="buy" class="hidden">
+    <h3>МАГАЗИН <small>(B – затвори)</small></h3>
+    <div id="buyList"></div>
+  </div>
+  <div id="board" class="hidden"></div>
+  <div id="clickplay" class="hidden">Кликни, за да играеш</div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="module" src="/client.js"></script>
+</body>
+</html>
