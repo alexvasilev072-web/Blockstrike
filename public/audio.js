@@ -65,6 +65,7 @@ async function loadManifest() {
   try {
     const list = await (await fetch('/api/sounds')).json();
     for (const f of list) { const base = f.replace(/\.[a-z0-9]+$/i, ''); (files.get(base) || files.set(base, []).get(base)).push('/sounds/' + f); }
+    fileFor('wind');      // предварително зареждане на файла за вятъра (ако има)
   } catch { }
 }
 // Намира файл за име (ak47_fire) или за варианти (step_metal1, step_metal2…); връща декодирания буфер или null (и започва зареждане).
@@ -149,10 +150,10 @@ const STEPS = {
 const WNAME = { pistol: 'pistol', deagle: 'deagle', smg: 'mp9', rifle: 'ak47', shotgun: 'nova', sniper: 'awp' };
 
 // вятър при висока скорост: непрекъснат шум, чийто тон и сила растат с нивото (0..1)
-let windSrc = null, windGain = null, windFlt = null;
+let windSrc = null, windGain = null, windFlt = null, windFile = false;
 function windInit() {
-  windSrc = ctx.createBufferSource(); windSrc.buffer = noiseBuf; windSrc.loop = true;
-  windFlt = ctx.createBiquadFilter(); windFlt.type = 'bandpass'; windFlt.Q.value = 0.6; windFlt.frequency.value = 400;
+  windSrc = ctx.createBufferSource(); const wb = fileFor('wind'); windFile = !!wb; windSrc.buffer = wb || noiseBuf; windSrc.loop = true;      // файл public/sounds/wind.* или синтезиран шум
+  windFlt = ctx.createBiquadFilter(); windFlt.type = windFile ? 'lowpass' : 'bandpass'; windFlt.Q.value = windFile ? 0.7 : 0.6; windFlt.frequency.value = windFile ? 18000 : 400;
   windGain = ctx.createGain(); windGain.gain.value = 0;
   windSrc.connect(windFlt).connect(windGain).connect(master); windSrc.start();
 }
@@ -168,7 +169,7 @@ export const audio = {
     if (!ctx) return;
     if (!windSrc) { if (level <= 0.01) return; windInit(); }
     const t = ctx.currentTime, l = Math.max(0, Math.min(1, level));
-    windGain.gain.setTargetAtTime(l * l * 0.55 * mixFx, t, 0.08); windFlt.frequency.setTargetAtTime(350 + l * 1700, t, 0.1);
+    windGain.gain.setTargetAtTime(l * l * (windFile ? 0.9 : 0.55) * mixFx, t, 0.08); if (!windFile) windFlt.frequency.setTargetAtTime(350 + l * 1700, t, 0.1);
   },
 
   setListener(x, y, z, fx, fy, fz) {

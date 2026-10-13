@@ -2,6 +2,7 @@
 // Работи върху обект B с полета: pos{x,y,z}, vel{x,y,z}, yaw, pitch, onGround, crouching, crouchAmt, inWater,
 // wjT, surfing, platform, groundN, stepAcc, speed. Не ползва DOM и аудио: събитията се подават през ctx.emit.
 import { MOVE } from './weapons.js';
+import { stepBodyBsp } from './bsp.js';
 import { BLOCK, DEFS, boxCollides, wedgePush, waterDepth } from './world.js';
 
 const AIR_MAX_COMP = MOVE.AIR_MAX * 6.25;
@@ -32,6 +33,7 @@ const platHit = (plats, x, y, z, H, HW) => {
 // inp: { can, fx, fz, crouch, walk, jumpNow, jumpHeld }   (fz<0 = напред)
 // ctx: { world, vmax (м/с на оръжието), mode, platforms:[{id,min,max,d}], emit(name,data) }
 export function stepBody(B, inp, ctx, dt) {
+  if (ctx.bsp) return stepBodyBsp(B, inp, ctx, dt);     // GoldSrc карта (CS 1.6): отделна физика по clipnode hull-овете
   const W = ctx.world, p = B.pos, v = B.vel, HW = MOVE.HW, M = MODES[ctx.mode] || MODES.comp, plats = ctx.platforms || [], emit = ctx.emit || (() => { });
   B.jumped = false; const wasSurf = B.surfing; B.surfing = false;
 

@@ -5,6 +5,7 @@ import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
 import { WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
 import { stepBody, platformsAt } from '/shared/physics.js';
+import { Bsp, decodeF32, decodeU8, decodeU32 } from '/shared/bsp.js';
 import { buildAtlas, BLOCK_TILES } from './textures.js';
 import { WorldRenderer } from './mesher.js';
 import { audio } from './audio.js';
@@ -146,7 +147,27 @@ addEventListener('resize', resize); resize();
 const atlas = buildAtlas(THREE);
 atlas.texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 const worldR = new WorldRenderer(scene, atlas);
-function buildWorldMesh(world) { worldR.load(world, S.mapJson?.env || {}); }
+function buildWorldMesh(world) { worldR.load(world, S.mapJson?.env || {}); buildBspMesh(S.mapJson); }
+
+// ----- GoldSrc (CS 1.6) карта: геометрията е готова триъгълна мрежа с вградено осветление -----
+let bspGroup = null;
+function buildBspMesh(json) {
+  if (bspGroup) { scene.remove(bspGroup); bspGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); bspGroup = null; }
+  S.bsp = json?.type === 'bsp' ? new Bsp(json) : null; { const r = document.querySelector('#radar'); if (r) r.style.display = S.bsp ? 'none' : ''; }
+  if (!S.bsp) return;
+  bspGroup = new THREE.Group();
+  const m = json.mesh, mk = (pos, col, idx, alpha) => {
+    if (!idx.length) return;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3, true)); g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: alpha ? THREE.DoubleSide : THREE.FrontSide, transparent: !!alpha, opacity: alpha ? 0.55 : 1, depthWrite: !alpha });
+    const mesh = new THREE.Mesh(g, mat); if (alpha) mesh.renderOrder = 2; bspGroup.add(mesh);
+  };
+  mk(decodeF32(m.pos), decodeU8(m.col), decodeU32(m.idx), false);
+  mk(decodeF32(m.apos), decodeU8(m.acol), decodeU32(m.aidx), true);
+  scene.add(bspGroup);
+}
 
 // ----- декор на картата (небе, мъгла, букви на пода, пламъци на факлите) -----
 let mapDeco = [], flames = null;
@@ -161,8 +182,10 @@ function setupMapDecor(json) {
   scene.background = new THREE.Color(e.sky);
   scene.fog = new THREE.Fog(e.fogColor || e.sky, e.fog[0], e.fog[1]);
   const [sx, , sz] = json.size;
+  if (json.type !== 'bsp') {
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.MeshBasicMaterial({ color: new THREE.Color(e.ground) }));
   ground.rotation.x = -Math.PI / 2; ground.position.set(sx / 2, -0.6, sz / 2); scene.add(ground); mapDeco.push(ground);
+  }
   for (const [name, [x1, z1, x2, z2]] of Object.entries(json.sites)) {
     const cx = (x1 + x2 + 1) / 2, cz = (z1 + z2 + 1) / 2;
     let fy = 1; for (let y = 8; y >= 0; y--) { if (S.base.solid(Math.floor(cx), y, Math.floor(cz)) || S.base.get(Math.floor(cx), y, Math.floor(cz)) === BLOCK.site) { fy = y + 1; break; } }
@@ -633,7 +656,7 @@ function stepPhysics(inp, simT) {
   let vmax = wdef?.speed ?? 6.25; if (S.scoped && wdef?.scoped) vmax = wdef.scoped;
   const plats = S.platDefs.length ? platformsAt(S.platDefs, simT, MOVE.STEP) : NO_PLATFORMS;
   S.platsNow = plats;
-  stepBody(S, inp, { world: S.world, vmax, mode: S.mode, platforms: plats, drive: S.mapJson?.drive, emit: physEmit }, MOVE.STEP);
+  stepBody(S, inp, { world: S.world, bsp: S.bsp, vmax, mode: S.mode, platforms: plats, drive: S.mapJson?.drive, emit: physEmit }, MOVE.STEP);
   if (S.jumped) S.jumpAt = 0;
 }
 
@@ -764,7 +787,7 @@ function frame(nowMs) {
 
   renderer.render(scene, camera);
   vmod.render(renderer);
-  if (now - (S.radarT || 0) > 33) { S.radarT = now; const f = isAlive ? { x: S.pos.x, z: S.pos.z, yaw: S.yaw } : (S.specId && poseOf(S.specId, serverNow() - 100)) ? (() => { const q = poseOf(S.specId, serverNow() - 100); return { x: q.x, z: q.z, yaw: q.yw }; })() : { x: S.pos.x, z: S.pos.z, yaw: S.yaw }; drawRadar($('#radar'), S, atlas, f, TEAM_COL); }
+  if (!S.bsp && now - (S.radarT || 0) > 33) { S.radarT = now; const f = isAlive ? { x: S.pos.x, z: S.pos.z, yaw: S.yaw } : (S.specId && poseOf(S.specId, serverNow() - 100)) ? (() => { const q = poseOf(S.specId, serverNow() - 100); return { x: q.x, z: q.z, yaw: q.yw }; })() : { x: S.pos.x, z: S.pos.z, yaw: S.yaw }; drawRadar($('#radar'), S, atlas, f, TEAM_COL); }
 
   hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); }
 }
@@ -844,7 +867,7 @@ async function initMenuBg() {
   if (menuLoading) return; menuLoading = true;
   try {
     const list = await (await fetch('/api/maps')).json();
-    const pool = list.filter(m => m.id !== 'mine'), pick = pool[Math.floor(Math.random() * pool.length)] || list[0];
+    const pool = list.filter(m => m.id !== 'mine' && !m.bsp), pick = pool[Math.floor(Math.random() * pool.length)] || list[0];
     const json = await (await fetch(`/maps/${pick.id}.json`)).json();
     if (S.inGame) return;
     S.mapJson = json; S.base = World.fromMap(json); S.world = S.base.clone();

@@ -5,13 +5,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { World, BLOCK, SOLID, boxCollides } from '../shared/world.js';
+import { Bsp, boxBlockedBsp } from '../shared/bsp.js';
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../server/maps');
 const want = process.argv.slice(2);
 let bad = 0;
 const fail = m => { console.log('   ✗ ' + m); bad++; };
 
+function analyzeBsp(json) {
+  const bsp = new Bsp(json); console.log(`
+${json.id} (GoldSrc BSP)`);
+  for (const [x, z, y] of json.spawns.att) if (boxBlockedBsp(bsp, x, y, z, false)) fail(`spawn ${x.toFixed(1)},${y.toFixed(1)},${z.toFixed(1)} е в твърдо`);
+  if (json.spawns.att.length < 1) fail('няма spawn точки');
+  console.log(`   spawn-ове ${json.spawns.att.length}, trigger_push ${bsp.pushes.length}, teleport ${bsp.teleports.length}`);
+}
 function analyze(json) {
+  if (json.type === 'bsp') return analyzeBsp(json);
   const w = World.fromMap(json), { sx, sy, sz } = w;
   console.log(`\n${json.id} (${sx}x${sy}x${sz})`);
   const sp = (s, side) => json.spawns[side].map(([x, z, y]) => [x, y ?? 1, z]);
