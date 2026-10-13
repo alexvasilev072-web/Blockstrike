@@ -7,9 +7,14 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node test/smoke.mjs"
+    "test": "node test/smoke.mjs",
+    "validate": "node tools/validate-maps.mjs",
+    "maps": "node tools/genmaps.mjs",
+    "bot": "node tools/bot.mjs"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5",

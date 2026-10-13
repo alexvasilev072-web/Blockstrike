@@ -17,6 +17,7 @@
     <p class="sub">Воксел тактически шутър • Нападатели срещу Защитници</p>
     <label>Име<input id="name" maxlength="16" placeholder="Играч" autocomplete="off"></label>
     <label>Код на стая <small>(празно = нова стая)</small><input id="room" maxlength="8" placeholder="напр. AB12" autocomplete="off"></label>
+    <label>Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
     <button id="joinBtn" class="primary">Влез в играта</button>
     <div id="joinErr" class="err"></div>
   </div>
@@ -27,7 +28,7 @@
   <div class="card wide">
     <div class="row between">
       <h2>Стая <b id="lobCode"></b></h2>
-      <button id="copyLink">Копирай линк</button>
+      <div class="row"><button id="skinsBtn">Скинове</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
     <div class="teams">
       <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><button data-team="att">Премини тук</button></div>
@@ -35,14 +36,33 @@
     </div>
     <div class="row">
       <label class="grow">Карта<select id="mapSel"></select></label>
+      <label class="grow">Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
       <button id="startBtn" class="primary">Старт</button>
     </div>
     <p id="mapDesc" class="sub"></p>
     <p id="lobHint" class="sub"></p>
+    <p class="kbdmsg sub"></p>
     <details><summary>Управление</summary>
-      <p class="keys">WASD – движение • Мишка – оглеждане • Ляв клик – стрелба • Десен клик – мерник (снайпер) • R – презареждане • Space – скок<br>
-      B – магазин (в началото на рунда) • 1/2/3 – оръжие • E (дръж) – залагане / обезвреждане на бомбата • Tab – резултат</p>
+      <p class="keys">WASD – движение • Мишка – оглеждане • Ляв клик – стрелба / бърз удар с нож • Десен клик – мерник (снайпер) / силен удар с нож<br>
+      Shift (дръж) – бавно ходене, без стъпки • Ctrl или C – клякане • Space – скок (bhop с ограничение) • R – презареждане • F – inspect<br>
+      B – магазин (в началото на рунда) • 1 основно • 2 пистолет • 3 нож • 4 граната • E (дръж) – залагане / обезвреждане на бомбата • Tab – резултат<br>
+      Съвет: „Цял екран“ заключва клавиатурата, за да не затваря Ctrl+W таба.</p>
     </details>
+  </div>
+</div>
+
+<!-- Скинове -->
+<div id="skins" class="screen hidden" style="z-index:20">
+  <div class="card wide">
+    <div class="row between"><h2>Скинове</h2><button id="skinsClose">Готово</button></div>
+    <div class="skinwrap">
+      <div id="skinTabs"></div>
+      <div class="skinside">
+        <canvas id="skinPreview" width="420" height="280"></canvas>
+        <div id="skinList"></div>
+      </div>
+    </div>
+    <p class="sub">Изборът се пази в браузъра и другите играчи го виждат в играта.</p>
   </div>
 </div>
 
@@ -53,6 +73,7 @@
     <div id="timer">0:00</div>
     <div id="scoreDef" class="sc def">0</div>
   </div>
+  <canvas id="radar" width="180" height="180"></canvas>
   <div id="phaseTxt"></div>
   <div id="bombTxt"></div>
   <div id="moneyBox">$<span id="money">0</span></div>
@@ -62,18 +83,27 @@
   <div id="scope"></div>
   <div id="vignette"></div>
   <div id="bl"><div id="hp"><small>HP</small><b>100</b></div><div id="ar"><small>БРОНЯ</small><b>0</b></div></div>
-  <div id="br"><div id="wname"></div><div id="ammo"><b>0</b><span> / 0</span></div></div>
+  <div id="br"><div id="items"></div><div id="wname"></div><div id="ammo"><b>0</b><span> / 0</span></div></div>
   <div id="useBar" class="hidden"><div></div><span></span></div>
   <div id="hint"></div>
   <div id="toast"></div>
   <div id="banner"></div>
   <div id="spec" class="hidden"></div>
+  <div id="fps"></div>
   <div id="buy" class="hidden">
-    <h3>МАГАЗИН <small>(B – затвори)</small></h3>
+    <h3>МАГАЗИН <small>(B – затвори, 1–8 – купи)</small></h3>
     <div id="buyList"></div>
   </div>
   <div id="board" class="hidden"></div>
-  <div id="clickplay" class="hidden">Кликни, за да играеш</div>
+  <div id="clickplay" class="hidden">
+    <div class="panel">
+      <h2>Пауза</h2>
+      <button id="playBtn" class="primary">Играй</button>
+      <label>Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
+      <button class="fsbtn">Цял екран (заключва клавиатурата)</button>
+      <div class="kbdmsg"></div>
+    </div>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>

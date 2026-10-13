@@ -1,6 +1,44 @@
 // Воксел свят: еднакъв код на сървъра и в браузъра.
-export const BLOCK = { air: 0, sand: 1, sandstone: 2, wood: 3, glass: 4, concrete: 5, site: 6, brick: 7, metal: 8, road: 9 };
-export const DESTRUCTIBLE = new Set([BLOCK.wood, BLOCK.glass]);
+
+// ---- Блокове ----
+// solid: колизии/куршуми; opaque: спира светлината; destr: руши се от гранати; emit: светлина (0-15);
+// surface: звук на стъпките; shape: 'cube' | 'torch' | 'rail' (не-кубични, не-твърди)
+const D = (name, o = {}) => ({ name, solid: true, opaque: true, destr: false, emit: 0, surface: 'stone', shape: 'cube', ...o });
+export const DEFS = [
+  D('air', { solid: false, opaque: false }),                                   // 0
+  D('sand', { surface: 'sand' }),                                              // 1
+  D('sandstone', { surface: 'stone' }),                                        // 2
+  D('wood', { destr: true, surface: 'wood' }),                                 // 3  дънер
+  D('glass', { opaque: false, destr: true, surface: 'stone' }),                // 4
+  D('concrete', { surface: 'stone' }),                                         // 5
+  D('site', { surface: 'stone' }),                                             // 6  маркировка на бомбена точка
+  D('brick', { surface: 'stone' }),                                            // 7
+  D('metal', { surface: 'metal' }),                                            // 8
+  D('road', { surface: 'sand' }),                                              // 9
+  D('stone', { surface: 'stone' }),                                            // 10
+  D('planks', { destr: true, surface: 'wood' }),                               // 11
+  D('rust', { surface: 'metal' }),                                             // 12
+  D('grass', { surface: 'grass' }),                                            // 13
+  D('dirt', { surface: 'grass' }),                                             // 14
+  D('snow', { surface: 'snow' }),                                              // 15
+  D('ice', { surface: 'ice' }),                                                // 16
+  D('tiles', { surface: 'stone' }),                                            // 17
+  D('cont_red', { surface: 'metal' }),                                         // 18
+  D('cont_blue', { surface: 'metal' }),                                        // 19
+  D('cont_green', { surface: 'metal' }),                                       // 20
+  D('cont_yellow', { surface: 'metal' }),                                      // 21
+  D('water', { solid: false, opaque: false, surface: 'water' }),               // 22
+  D('torch', { solid: false, opaque: false, emit: 14, shape: 'torch', surface: 'wood' }), // 23
+  D('rail', { solid: false, opaque: false, shape: 'rail', surface: 'metal' }), // 24
+  D('lamp', { emit: 15, surface: 'metal' }),                                   // 25
+  D('cobble', { surface: 'stone' }),                                           // 26
+  D('crate', { destr: true, surface: 'wood' }),                                // 27
+  D('gravel', { surface: 'stone' }),                                           // 28
+];
+export const BLOCK = Object.fromEntries(DEFS.map((d, i) => [d.name, i]));
+export const SOLID = DEFS.map(d => d.solid);
+export const OPAQUE = DEFS.map(d => d.opaque);
+export const DESTRUCTIBLE = new Set(DEFS.map((d, i) => (d.destr ? i : -1)).filter(i => i >= 0));
 
 export class World {
   constructor(sx, sy, sz, data) {
@@ -17,7 +55,7 @@ export class World {
     if (x < 0 || y < 0 || z < 0 || x >= this.sx || y >= this.sy || z >= this.sz) return;
     this.data[(y * this.sz + z) * this.sx + x] = b;
   }
-  solid(x, y, z) { return this.get(x, y, z) !== 0; }
+  solid(x, y, z) { return SOLID[this.get(x, y, z)]; }
   clone() { return new World(this.sx, this.sy, this.sz, this.data.slice()); }
 
   // ops: ["блок", x1,y1,z1, x2,y2,z2] - запълване на кутия (включително), прилагат се по ред.
@@ -35,6 +73,12 @@ export class World {
     }
     return w;
   }
+
+  // Y на крака за стоене в колона (x,z), като се търси от fromY надолу.
+  floorY(x, z, fromY = this.sy - 1) {
+    for (let y = Math.min(fromY, this.sy - 1); y >= 0; y--) if (SOLID[this.get(x, y, z)]) return y + 1;
+    return 0;
+  }
 }
 
 // Дали кутията на играча (долен център x,y,z) пресича твърд блок.
@@ -45,8 +89,15 @@ export function boxCollides(world, x, y, z, hw = 0.3, h = 1.8, eps = 0) {
   for (let yy = y0; yy <= y1; yy++)
     for (let zz = z0; zz <= z1; zz++)
       for (let xx = x0; xx <= x1; xx++)
-        if (world.solid(xx, yy, zz)) return true;
+        if (SOLID[world.get(xx, yy, zz)]) return true;
   return false;
+}
+
+// Колко от тялото е във вода (0..1) – за плуване.
+export function waterDepth(world, x, y, z, h = 1.8) {
+  let n = 0, tot = 0;
+  for (let yy = y + 0.1; yy < y + h; yy += 0.45) { tot++; if (world.get(Math.floor(x), Math.floor(yy), Math.floor(z)) === BLOCK.water) n++; }
+  return n / tot;
 }
 
 // Amanatides-Woo обхождане на лъч през клетките. cb(x,y,z,t) -> true за стоп.

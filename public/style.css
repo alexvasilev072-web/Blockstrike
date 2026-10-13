@@ -44,11 +44,12 @@ details { margin-top: 10px; color: #9aa6b8; cursor: pointer; }
 #killfeed { position: absolute; top: 14px; right: 16px; text-align: right; font-size: 15px; }
 #killfeed div { background: rgba(0,0,0,.55); padding: 3px 8px; margin-bottom: 3px; display: inline-block; clear: both; float: right; }
 .att-c { color: var(--att); } .def-c { color: var(--def); }
-#cross i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; }
-#cross i:nth-child(1) { left: calc(50% - 1px); top: calc(50% - 13px); width: 2px; height: 8px; }
-#cross i:nth-child(2) { left: calc(50% - 1px); top: calc(50% + 5px); width: 2px; height: 8px; }
-#cross i:nth-child(3) { top: calc(50% - 1px); left: calc(50% - 13px); height: 2px; width: 8px; }
-#cross i:nth-child(4) { top: calc(50% - 1px); left: calc(50% + 5px); height: 2px; width: 8px; }
+#cross { --gap: 6px; }
+#cross i { position: absolute; background: #5dff7a; box-shadow: 0 0 2px #000; }
+#cross i:nth-child(1) { left: calc(50% - 1px); top: calc(50% - var(--gap) - 8px); width: 2px; height: 8px; }
+#cross i:nth-child(2) { left: calc(50% - 1px); top: calc(50% + var(--gap)); width: 2px; height: 8px; }
+#cross i:nth-child(3) { top: calc(50% - 1px); left: calc(50% - var(--gap) - 8px); height: 2px; width: 8px; }
+#cross i:nth-child(4) { top: calc(50% - 1px); left: calc(50% + var(--gap)); height: 2px; width: 8px; }
 #hitmark { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px; opacity: 0; transition: opacity .25s; }
 #hitmark::before, #hitmark::after { content: ""; position: absolute; left: 11px; top: -4px; width: 4px; height: 34px; background: #fff; transform: rotate(45deg); }
 #hitmark::after { transform: rotate(-45deg); }
@@ -81,3 +82,20 @@ details { margin-top: 10px; color: #9aa6b8; cursor: pointer; }
 #board h4 { margin: 0 0 4px; }
 #board td:nth-child(n+2), #board th:nth-child(n+2) { width: 60px; text-align: center; }
 #clickplay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); font-size: 34px; pointer-events: auto; cursor: pointer; }
+
+/* етап 3+ */
+input[type=range] { padding: 0; accent-color: #e0701a; }
+.fsbtn { white-space: nowrap; }
+.kbdmsg { min-height: 18px; font-size: 13px; margin: 6px 0 0; }
+#clickplay .panel { background: var(--panel); border: 3px solid #3a4558; padding: 22px 28px; width: min(380px, 92vw); text-align: center; }
+#clickplay .panel h2 { margin: 0 0 12px; } #clickplay .panel label, #clickplay .panel button { margin-top: 10px; display: block; width: 100%; }
+#clickplay { background: rgba(0,0,0,.6); font-size: 20px; }
+#radar { position: absolute; left: 12px; top: 56px; width: 180px; height: 180px; border: 2px solid #2f3a4c; background: rgba(8,10,14,.55); border-radius: 4px; }
+#moneyBox { top: 246px; }
+#items { font-size: 15px; color: #ffe08a; min-height: 20px; }
+#fps { position: absolute; right: 10px; bottom: 4px; font-size: 11px; color: #7d8aa0; }
+.skinwrap { display: grid; grid-template-columns: 190px 1fr; gap: 16px; margin: 14px 0; }
+#skinTabs { display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow: auto; }
+#skinTabs button { text-align: left; padding: 7px 10px; font-size: 14px; } #skinTabs button.on { background: #e0701a; border-color: #ffb066; }
+#skinPreview { width: 100%; max-width: 420px; background: radial-gradient(circle at 50% 40%, #3a4660, #12161e); border: 2px solid #3a4558; display: block; margin-bottom: 10px; }
+#skinList { display: flex; flex-wrap: wrap; gap: 6px; } #skinList button { padding: 6px 10px; font-size: 13px; } #skinList button.on { background: #e0701a; border-color: #ffb066; }
