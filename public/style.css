@@ -122,3 +122,19 @@ button.danger { border-color: #a04444; background: #4a2020; } button.danger:hove
 #clickplay .panel { background: rgba(14,18,26,.92); } #clickplay { background: rgba(0,0,0,.45); }
 
 .menuwrap > button, .menuwrap > .row { width: 100%; }
+
+/* ===== parkour / surf ===== */
+.modes { margin: 10px 0 4px; gap: 8px; align-items: center; } .modeBtn.on { background: #e0701a; border-color: #ffb066; } .modeBtn:disabled { opacity: .7; cursor: default; }
+#runPlayers { margin: 12px 0; } .chip { display: inline-block; background: #2a3445; border: 1px solid #46546b; padding: 3px 10px; margin: 2px; font-size: 14px; } .chip.me { border-color: #ffb066; }
+#runhud { display: none; } #hud.run #runhud { display: block; }
+#hud.run #top, #hud.run #moneyBox, #hud.run #bl, #hud.run #br, #hud.run #bombTxt, #hud.run #phaseTxt, #hud.run #items, #hud.run #hint, #hud.run #useBar { display: none; }
+#runTimer { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 46px; color: #fff; background: rgba(10,13,18,.65); padding: 2px 18px; border: 2px solid #2f3a4c; min-width: 250px; text-align: center; }
+#runTimer.on { color: #ffe08a; } #runTimer.done { color: #7cf08a; }
+#runState { position: absolute; top: 78px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #ffb066; }
+#runCp { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); font-size: 18px; color: #9be8b4; }
+#runPb { position: absolute; top: 124px; left: 50%; transform: translateX(-50%); font-size: 14px; color: #b9c3d3; }
+#speedo { position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%); font-size: 40px; color: #fff; text-shadow: 2px 2px 0 #000; }
+#runKeys { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #9aa6b8; }
+#lbBox { position: absolute; top: 14px; right: 14px; width: 260px; background: rgba(10,13,18,.6); border: 2px solid #2f3a4c; padding: 6px 10px; font-size: 14px; }
+#lbBox h4 { margin: 0 0 4px; color: #ffb066; } #lbList div { display: flex; justify-content: space-between; gap: 8px; } #lbList .me { color: #ffe08a; } #lbList .dim { color: #7d8aa0; }
+#hud.run #killfeed { top: 160px; }

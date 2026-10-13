@@ -2,7 +2,7 @@
 import { audio } from './audio.js';
 
 const KEY = 'bs_settings';
-export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true };
+export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true, retro: false };
 
 function load() {
   try {
@@ -22,13 +22,13 @@ function sanitize() {
   settings.crossSize = clamp(settings.crossSize, 3, 24);
   if (!['low', 'medium', 'high'].includes(settings.quality)) settings.quality = 'high';
   if (!/^#[0-9a-f]{6}$/i.test(settings.crossColor)) settings.crossColor = DEFAULTS.crossColor;
-  settings.invert = !!settings.invert; settings.showFps = !!settings.showFps;
+  settings.invert = !!settings.invert; settings.showFps = !!settings.showFps; settings.retro = !!settings.retro;
 }
 
 const $ = s => document.querySelector(s);
 function apply(save = true) {
   sanitize();
-  audio.setVolume(settings.vol); audio.setMix({ fx: settings.volFx, steps: settings.volSteps });
+  audio.setVolume(settings.vol); audio.setMix({ fx: settings.volFx, steps: settings.volSteps }); audio.setRetro(settings.retro);
   const r = document.documentElement.style;
   r.setProperty('--cc', settings.crossColor); r.setProperty('--cl', settings.crossSize + 'px');
   const fps = $('#fps'); if (fps) fps.style.display = settings.showFps ? '' : 'none';
@@ -42,7 +42,7 @@ function sync() {   // от обекта към контролите
   $('#setFov').value = settings.fov; $('#setFovV').textContent = settings.fov;
   for (const [id, k] of [['setVol', 'vol'], ['setVolFx', 'volFx'], ['setVolSteps', 'volSteps']]) { $('#' + id).value = Math.round(settings[k] * 100); $('#' + id + 'V').textContent = Math.round(settings[k] * 100) + '%'; }
   $('#setCrossCol').value = settings.crossColor; $('#setCrossSize').value = settings.crossSize; $('#setCrossSizeV').textContent = settings.crossSize + 'px';
-  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps;
+  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps; $('#setRetro').checked = settings.retro;
   document.querySelectorAll('.vol').forEach(o => { o.value = Math.round(settings.vol * 100); });
 }
 
@@ -59,6 +59,7 @@ export function initSettings(cb) {
   bind('setVol', el => { settings.vol = el.value / 100; audio.init(); });
   bind('setVolFx', el => { settings.volFx = el.value / 100; });
   bind('setVolSteps', el => { settings.volSteps = el.value / 100; });
+  bind('setRetro', el => { settings.retro = el.checked; audio.init(); }, 'change');
   bind('setCrossCol', el => { settings.crossColor = el.value; });
   bind('setCrossSize', el => { settings.crossSize = +el.value; });
   bind('setQuality', el => { settings.quality = el.value; }, 'change');

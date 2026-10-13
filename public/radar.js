@@ -1,5 +1,5 @@
 // Радар: въртящ се около играча, показва стените от картата, съотборниците, носителя на бомбата и бомбата.
-import { DEFS, SOLID } from '/shared/world.js';
+import { DEFS, SOLID, IS_WEDGE } from '/shared/world.js';
 import { BLOCK_TILES } from './textures.js';
 
 const SC = 4;            // пиксела на метър в кеша на картата
@@ -14,7 +14,7 @@ function bake(world, atlas) {
   const g = cv.getContext('2d'), img = g.createImageData(cv.width, cv.height);
   for (let z = 0; z < world.sz; z++) for (let x = 0; x < world.sx; x++) {
     let top = -1, id = 0, water = false;
-    for (let y = world.sy - 1; y >= 0; y--) { const b = world.data[(y * world.sz + z) * world.sx + x]; if (b && SOLID[b]) { top = y; id = b; break; } if (b === 22) water = true; }
+    for (let y = world.sy - 1; y >= 0; y--) { const b = world.data[(y * world.sz + z) * world.sx + x]; if (b && (SOLID[b] || IS_WEDGE[b])) { top = y; id = b; break; } if (b === 22) water = true; }
     let c = [18, 20, 26];
     if (top >= 0) {
       const a = atlas.avg[BLOCK_TILES[DEFS[id].name]?.side] || [120, 120, 120];

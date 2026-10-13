@@ -1,6 +1,6 @@
 // Мрежи на света: чънкове 16x16, осветление (небе + факли), ambient occlusion във върховете.
 import * as THREE from 'three';
-import { BLOCK, DEFS, OPAQUE, SOLID } from '/shared/world.js';
+import { BLOCK, DEFS, OPAQUE, SOLID, WEDGE, WEDGE_PROFILE } from '/shared/world.js';
 import { BLOCK_TILES } from './textures.js';
 
 const CH = 16;
@@ -112,6 +112,7 @@ export class WorldRenderer {
       const b = w.data[(y * w.sz + z) * w.sx + x]; if (!b) continue;
       const def = DEFS[b], tl = this.tiles[b];
       if (def.shape === 'torch') { this.addTorch(O, x, y, z); continue; }
+      if (def.shape === 'wedge') { this.addWedge(O, x, y, z, WEDGE[b], tl.top); continue; }
       if (def.shape === 'rail') { this.addRail(O, x, y, z, tl.top); continue; }
       const isTrans = !def.opaque, bucket = isTrans ? T : O;
       const waterTop = b === BLOCK.water && w.get(x, y + 1, z) !== BLOCK.water;
@@ -184,6 +185,35 @@ export class WorldRenderer {
     else if (SOLID[w.get(x, y, z + 1)]) { oz = 0.3; wall = true; } else if (SOLID[w.get(x, y, z - 1)]) { oz = -0.3; wall = true; }
     const cx = x + 0.5 + ox, cz = z + 0.5 + oz, y0 = y + (wall ? 0.22 : 0), y1 = y0 + 0.62, hw = 0.075;
     this.addBox(D, cx - hw, y0, cz - hw, cx + hw, y1, cz + hw, rect, [0.375, 0.625], 1, [1, 0.96, 0.85]);
+  }
+
+  // наклонена рампа: призма с профил (u,h) по посоката на нарастване; осветление от клетката, нормали за сянка
+  addWedge(D, x, y, z, wd, rect) {
+    const prof = WEDGE_PROFILE[wd.kind], n = prof.length, lt = [0, 0], rgb = [0, 0, 0];
+    this.lightOf(x, y, z, lt); this.shade(lt[0], lt[1], rgb);
+    const along = wd.dx !== 0;
+    const P = (u, h, v) => (along ? [x + (wd.dx > 0 ? u : 1 - u), y + h, z + v] : [x + v, y + h, z + (wd.dz > 0 ? u : 1 - u)]);
+    let cu = 0, ch = 0; for (const [u, h] of prof) { cu += u; ch += h; } cu /= n; ch /= n;
+    const quad = (pts, out) => {
+      const [a, b, c] = pts, ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      if (nx * out[0] + ny * out[1] + nz * out[2] < 0) { pts = pts.slice().reverse(); nx = -nx; ny = -ny; nz = -nz; }
+      const l = Math.hypot(nx, ny, nz) || 1, sh = (ny / l > 0 ? 0.82 + 0.18 * (ny / l) : 0.62) * (1 + 0.04 * (nx / l));
+      const base = D.pos.length / 3;
+      pts.forEach((q, i) => {
+        D.pos.push(q[0], q[1], q[2]); D.col.push(rgb[0] * sh, rgb[1] * sh, rgb[2] * sh);
+        const uv = [[0, 0], [1, 0], [1, 1], [0, 1]][i % 4]; D.uv.push(rect.u0 + uv[0] * (rect.u1 - rect.u0), rect.v0 + uv[1] * (rect.v1 - rect.v0));
+      });
+      for (let i = 1; i < pts.length - 1; i++) D.idx.push(base, base + i, base + i + 1);
+    };
+    for (let i = 0; i < n; i++) {
+      const [u0, h0] = prof[i], [u1, h1] = prof[(i + 1) % n];
+      let nu = h1 - h0, nh = -(u1 - u0); const mu = (u0 + u1) / 2 - cu, mh = (h0 + h1) / 2 - ch; if (nu * mu + nh * mh < 0) { nu = -nu; nh = -nh; }
+      const out = [wd.dx * nu, nh, wd.dz * nu];
+      quad([P(u0, h0, 0), P(u1, h1, 0), P(u1, h1, 1), P(u0, h0, 1)], out);
+    }
+    const va = along ? [0, 0, 1] : [1, 0, 0];
+    for (const cap of [0, 1]) { const sg = cap ? 1 : -1; quad(prof.map(([u, h]) => P(u, h, cap)), [va[0] * sg, 0, va[2] * sg]); }
   }
 
   addRail(D, x, y, z, rect) {

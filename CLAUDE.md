@@ -2,35 +2,41 @@
 
 Браузърен multiplayer FPS. **Визията е voxel/пикселна (Minecraft), механиките следват Counter-Strike 2.**
 Когато нещо не е уточнено, питай „как е в CS2?“ и го направи така (скорости, икономика, щети, правила на рунда, поведение на бомбата).
+Режими: **Състезателен** (CS2), **Parkour** и **Surf** (таймер, checkpoint-и, класация; движението следва Source/CS).
 
 ## Правила, които не се нарушават
 
-1. **Сървърът е авторитетен** за попадения, щети, патрони, пари, купуване, гранати, бомба и състояние на рунда. Клиентът само предвижда собственото си движение; сървърът валидира скорост и колизии.
-2. Клиентът изпраща **входни данни** (позиция/ъгли, „стрелям“, „презареждам“), никога резултати (щети, убийства). Откатът (spray pattern) и неточността се смятат на сървъра със същите формули от `shared/weapons.js`.
+1. **Сървърът е авторитетен** за попадения, щети, патрони, пари, купуване, гранати, бомба, състояние на рунда и за състезанието (старт/финал/checkpoint/падане). Клиентът само предвижда собственото си движение; сървърът валидира скорост и колизии (лимитите зависят от режима).
+2. Клиентът изпраща **входни данни** (позиция/ъгли, „стрелям“, „презареждам“), никога резултати (щети, убийства, време). Откатът (spray pattern) и неточността се смятат на сървъра със същите формули от `shared/weapons.js`.
 3. Всички клавиши се четат през `event.code` (`KeyW`, `KeyR`, `KeyF`…), никога `event.key` – за да работят и на българска клавиатура.
-4. Всички звуци са процедурни (Web Audio API), всички текстури и модели – процедурни (canvas / воксели). Няма външни медийни файлове.
-5. Блоковете, картите и оръжията са данни (`shared/`, `server/maps/*.json`); не ги дублирай в клиента и сървъра.
+4. Текстурите и моделите са процедурни (canvas / воксели). Звуците **по подразбиране** са процедурни (Web Audio API). **Външни звукови файлове са разрешени** (в `public/sounds/`, виж `public/sounds/README.md`), но **само с отворен лиценз (CC0 / public domain) или собствени записи**. Звуци, текстури и модели от Counter-Strike и други игри (собственост на Valve/др.) са забранени.
+5. Блоковете, картите и оръжията са данни (`shared/`, `server/maps/*.json`); не ги дублирай в клиента и сървъра. Движението на играча е на **едно място**: `shared/physics.js` (ползват го клиентът и тестовете).
 6. Забавянията след смяна на оръжие/купуване са общи (`CFG.SWITCH_DELAY`, `CFG.BUY_DELAY`): и клиентът, и сървърът ги ползват; при отказ сървърът праща `denied`. Скоростта на играча се смята по тиковете на симулацията (`tk` в `state`), не по времето на пристигане.
 7. Не чупи мрежовия протокол без да обновиш и двете страни и `test/smoke.mjs`.
 
 ## Структура
 
 ```
-server/index.js        Express + Socket.io: стаи, рундове, икономика, оръжия, ножове, hitscan, гранати, бомба (носител/падане/defuse kit)
-server/maps/*.json     карти (ops = кутии от блокове; env; spawns; sites). mine/snow/harbor се генерират от tools/genmaps.mjs
-shared/world.js        блокове (BLOCK/DEFS), воксел свят, колизии, лъчево обхождане
+server/index.js        Express + Socket.io: стаи, режими, рундове, икономика, оръжия, ножове, hitscan, гранати, бомба; parkour/surf (таймер, checkpoint, класация)
+server/maps/*.json     карти (ops = кутии от блокове; env; spawns; sites; за parkour/surf още mode, start, platforms, drive, killY)
+shared/world.js        блокове (BLOCK/DEFS, вкл. специални и рампи WEDGE), воксел свят, колизии (куб + wedgePush), лъчево обхождане
+shared/physics.js      stepBody(): движение на играча (CS2, вода/water jump, рампи/surf, слуз, лед, платформи); MODES (comp/parkour/surf)
 shared/weapons.js      оръжия, ножове, recoilAt, spreadFor, движение (MOVE), икономика (CFG), магазин (ITEMS)
-public/client.js       главен клиент: мрежа, вход, физика на играча (64 Hz), HUD, цикъл на рендиране
+public/client.js       главен клиент: мрежа, вход, меню/пауза, HUD (вкл. run HUD), цикъл на рендиране
 public/textures.js     процедурни 64x64 текстури + атлас (с extrude рамка срещу процепи при mip)
-public/mesher.js       чънкове 16x16, осветление (небе + факли), ambient occlusion
-public/audio.js        Web Audio: 3D звуци (PannerNode), стъпки по повърхности, сила на звука
+public/mesher.js       чънкове 16x16, осветление (небе + факли), ambient occlusion, мешове на рампи (addWedge)
+public/audio.js        Web Audio: 3D звуци, стъпки по повърхности, ретро режим, звукови файлове от public/sounds, вятър
 public/voxmodel.js     воксел чертежи на оръжия/ножове/ръце + построител на геометрия (LOD step)
 public/skindata.js     процедурни скинове (функции на воксел координати)
 public/viewmodel.js    анимации от първо лице: вадене, откат, презареждане, inspect, удари с нож (отделна сцена)
 public/skins.js        меню за скинове с 3D преглед
-public/settings.js     настройки (localStorage): мишка, FOV, звук, мерник, графика
+public/settings.js     настройки (localStorage): мишка, FOV, звук (вкл. ретро), мерник, графика
 public/radar.js        радар (съотборници, носител/паднала/заложена бомба)
-tools/genmaps.mjs      генератор на картите; tools/validate-maps.mjs – проверка; tools/bot.mjs – тестов бот
+public/sounds/         по избор: звукови файлове (имената са в README.md там)
+tools/genmaps.mjs      генератор на comp картите mine/snow/harbor; tools/genruns.mjs – parkour и surf карти (с проверка на скоковете)
+tools/validate-maps.mjs проверка на карти; tools/bot.mjs – тестов бот
+test/physics.mjs       тест на физиката (вода, рампи, слуз, лед, платформи) без браузър
+test/runs.mjs          бот минава всички скокове на parkour картите и държи рампите на surf картите
 test/smoke.mjs         автоматичен тест на сървъра (BS_TEST=1: ускорени таймери + телепорт `dbgTp`)
 ```
 
@@ -42,9 +48,9 @@ test/smoke.mjs         автоматичен тест на сървъра (BS_T
 ```bash
 npm install
 npm start            # http://localhost:3000
-npm test             # smoke тест на сървъра (порт 3999)
+npm test             # physics + runs + smoke (сървър на порт 3999)
 npm run validate     # проверка на картите
-npm run maps         # прегенерира mine/snow/harbor
+npm run maps         # прегенерира comp (mine/snow/harbor) и parkour/surf карти
 npm run bot -- СТАЯ  # тестов бот
 ```
 
@@ -57,8 +63,10 @@ Build `npm install`, Start `npm start`, Health check `/healthz`. Сървъръ�
 ## Конвенции
 
 - Език на интерфейса и коментарите: български.
-- Нов блок: `shared/world.js` (`DEFS`) + плочки в `public/textures.js` (`TILES` и `BLOCK_TILES`).
+- Нов блок: `shared/world.js` (`def(id, …)`) + плочки в `public/textures.js` (`TILES` и `BLOCK_TILES`). Рампите са `WEDGE` (посоката е посоката на нарастване на височината).
 - Ново оръжие: данни в `shared/weapons.js` + чертеж в `public/voxmodel.js` (`BP`) + базова поза и анимации във `public/viewmodel.js` + магазин (`ITEMS`) + звук в `public/audio.js`.
-- Нова карта: JSON или функция в `tools/genmaps.mjs`, после `npm run validate`.
+- Нов звук с файл: сложи `име.wav|ogg|mp3` в `public/sounds/` (CC0/собствен запис) и добави името в README-то там; иначе остава процедурният.
+- Нова comp карта: JSON или функция в `tools/genmaps.mjs`, после `npm run validate`. Нова parkour/surf карта: функция в `tools/genruns.mjs` (assertHop проверява скоковете), после `node test/runs.mjs`.
+- Промени по движението правиш само в `shared/physics.js` и добавяш проверка в `test/physics.mjs`.
 - След промяна: `npm test` и `npm run validate`; провери и в браузър.
-- Отладка в конзолата на браузъра: `__S` (състояние), `__socket`, `__vm` (viewmodel), `__renderer`; `__S.debugCam = {x,y,z,yaw,pitch}` и `__S.noSend = true` за свободна камера без изпращане на позиция.
+- Отладка в конзолата на браузъра: `__S` (състояние), `__socket`, `__vm` (viewmodel), `__renderer`, `__frame(t)` (ръчен кадър, когато панелът е скрит); `__S.debugCam = {x,y,z,yaw,pitch}` и `__S.noSend = true` за свободна камера без изпращане на позиция.

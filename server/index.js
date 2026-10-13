@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
-import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, traverse } from '../shared/world.js';
+import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
 import { WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,7 +25,18 @@ for (const f of fs.readdirSync(path.join(ROOT, 'server/maps')).sort()) {
         console.warn(`[map ${json.id}] лош spawn ${side} ${x},${z}`);
     }
   }
-  MAPS[json.id] = { json, world };
+  // режим на картата и checkpoint клъстери (свързани checkpoint блокове = един checkpoint)
+  const mode = json.mode || 'comp';
+  const cpOf = new Map(); let cpCount = 0;
+  for (let y = 0; y < world.sy; y++) for (let z = 0; z < world.sz; z++) for (let x = 0; x < world.sx; x++) {
+    if (world.get(x, y, z) !== BLOCK.checkpoint || cpOf.has(x + ',' + y + ',' + z)) continue;
+    const id = ++cpCount, q = [[x, y, z]]; cpOf.set(x + ',' + y + ',' + z, id);
+    for (let h = 0; h < q.length; h++) for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      const nx = q[h][0] + dx, ny = q[h][1] + dy, nz = q[h][2] + dz, k = nx + ',' + ny + ',' + nz;
+      if (!cpOf.has(k) && world.get(nx, ny, nz) === BLOCK.checkpoint) { cpOf.set(k, id); q.push([nx, ny, nz]); }
+    }
+  }
+  MAPS[json.id] = { json, world, mode, cpOf, cpCount };
 }
 
 // ---------- HTTP ----------
@@ -35,6 +46,8 @@ app.use('/shared', express.static(path.join(ROOT, 'shared')));
 app.use('/maps', express.static(path.join(ROOT, 'server/maps')));
 app.use(express.static(path.join(ROOT, 'public')));
 app.get('/healthz', (_, res) => res.send('ok'));
+// звукови файлове по избор (public/sounds): ако има файл с подходящо име, клиентът го ползва вместо синтезирания звук
+app.get('/api/sounds', (_, res) => { try { res.json(fs.readdirSync(path.join(ROOT, 'public/sounds')).filter(f => /\.(wav|ogg|mp3)$/i.test(f))); } catch { res.json([]); } });
 app.get('/api/maps', (_, res) => res.json(Object.values(MAPS).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description }))));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true } });
@@ -77,6 +90,8 @@ class Room {
     this.players = new Map();
     this.hostId = null;
     this.mapId = 'desert';
+    this.mode = 'comp';          // comp | parkour | surf
+    this.best = new Map();       // класация на стаята (parkour/surf): id -> {name,time}
     this.phase = 'lobby'; // lobby | freeze | live | end | matchover
     this.phaseEnd = 0;
     this.round = 0;
@@ -99,7 +114,7 @@ class Room {
   lobbyInfo() {
     return {
       code: this.code, hostId: this.hostId, mapId: this.mapId, phase: this.phase,
-      maps: Object.values(MAPS).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description })),
+      mode: this.mode, maps: Object.values(MAPS).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0)).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description, mode: m.mode, level: m.json.level || '' })),
       players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })),
       sc: this.sc, round: this.round,
     };
@@ -127,7 +142,7 @@ class Room {
   removePlayer(id) {
     const p = this.players.get(id);
     if (p && p.alive && p.inv.bomb) this.dropBomb(p);
-    this.players.delete(id);
+    this.players.delete(id); this.best.delete(id);
     if (this.hostId === id) this.hostId = this.players.keys().next().value || null;
     if (this.players.size === 0) { rooms.delete(this.code); return; }
     this.emit('cosLeave', id);
@@ -152,12 +167,76 @@ class Room {
   }
 
   // ----- мач / рунд -----
+  // ----- parkour / surf: без отбори и оръжия; таймер, checkpoint-и, класация -----
+  get run() { return this.mode !== 'comp'; }
+  startRun() {
+    const now = Date.now();
+    this.round = 1; this.sc = { att: 0, def: 0 }; this.phase = 'live'; this.phaseEnd = now + 1e11; this.roundStart = now; this.liveStart = now;
+    this.world = this.map.world.clone(); this.changes = []; this.bomb = null; this.drop = null; this.nades = []; this.best = new Map();
+    let i = 0;
+    for (const p of this.players.values()) { p.kills = 0; p.deaths = 0; this.spawnRun(p, i++); }
+    this.emit('gameStart', { mapId: this.mapId, mode: this.mode, changes: [] });
+    this.emit('round', { n: 1, sc: this.sc, mapId: this.mapId, mode: this.mode });
+    for (const p of this.players.values()) this.sendSpawn(p, false);
+    this.emitLobby();
+  }
+  spawnRun(p, idx = 0) {
+    this.resetLoadout(p); p.inv.se = null; p.inv.pr = null; p.ammo = {}; p.weapon = 'knife'; p.team = 'att';
+    const sp = this.map.json.spawns.att, [sx, sz, sy = 1] = sp[idx % sp.length];
+    p.alive = true; p.hp = 100; p.x = sx + 0.5; p.y = sy; p.z = sz + 0.5; p.yw = this.map.json.startYaw ?? 0; p.pt = 0;
+    p.cr = false; p.g = true; p.spd = 0; p.lastTk = null; p.cp = null; p.cpSet = new Set(); p.run = { st: 0, t0: 0, tm: 0 };
+    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }]; p.lastGround = { x: p.x, y: p.y, z: p.z }; p.lastState = Date.now(); p.respawnAt = Date.now();
+  }
+  sendSpawn(p, quiet = true, why = null) { p.socket.emit('spawn', { x: p.x, y: p.y, z: p.z, yw: p.yw, quiet, why }); }
+  respawnRun(p, why) {
+    const to = p.cp || { x: this.map.json.spawns.att[0][0] + 0.5, y: this.map.json.spawns.att[0][2] ?? 1, z: this.map.json.spawns.att[0][1] + 0.5, yw: this.map.json.startYaw ?? 0 };
+    p.x = to.x; p.y = to.y; p.z = to.z; if (to.yw !== undefined) p.yw = to.yw; p.spd = 0; p.respawnAt = Date.now(); p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
+    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }];
+    p.deaths += why && why !== 'cp' ? 1 : 0;
+    this.sendSpawn(p, true, why);
+  }
+  restartRun(p) {
+    p.cp = null; p.cpSet = new Set(); p.run = { st: 0, t0: 0, tm: 0 };
+    const sp = this.map.json.spawns.att, [sx, sz, sy = 1] = sp[0];
+    p.x = sx + 0.5; p.y = sy; p.z = sz + 0.5; p.yw = this.map.json.startYaw ?? 0; p.spd = 0; p.respawnAt = Date.now(); p.lastTk = null;
+    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }]; p.lastGround = { x: p.x, y: p.y, z: p.z };
+    this.sendSpawn(p, true, 'restart');
+  }
+  // логика на състезанието при всяка приета позиция
+  runState(p, now) {
+    const W = this.world, j = this.map.json, cx = Math.floor(p.x), cz = Math.floor(p.z), by = Math.floor(p.y - 0.06), fy = Math.floor(p.y + 0.1);
+    const below = W.get(cx, by, cz), feet = W.get(cx, fy, cz), head = W.get(cx, Math.floor(p.y + 1.0), cz);
+    if (below === BLOCK.lava || feet === BLOCK.lava || feet === BLOCK.water || head === BLOCK.water || p.y < (j.killY ?? 0.4)) {
+      return this.respawnRun(p, below === BLOCK.lava || feet === BLOCK.lava ? 'lava' : (feet === BLOCK.water || head === BLOCK.water) ? 'water' : 'void');
+    }
+    if (p.g && below === BLOCK.checkpoint) {
+      const id = this.map.cpOf.get(cx + ',' + by + ',' + cz) || 0;
+      if (!p.cp || Math.abs(p.cp.x - (cx + 0.5)) > 0.01 || Math.abs(p.cp.z - (cz + 0.5)) > 0.01 || p.cp.y !== by + 1) {
+        const first = !p.cpSet.has(id); p.cpSet.add(id);
+        p.cp = { x: cx + 0.5, y: by + 1, z: cz + 0.5, yw: p.yw };
+        p.socket.emit('cp', { n: p.cpSet.size, total: this.map.cpCount, first });
+      }
+    }
+    const [x1, z1, x2, z2] = j.start || [0, 0, 0, 0];
+    const inStart = p.x >= x1 && p.x <= x2 + 1 && p.z >= z1 && p.z <= z2 + 1 && p.y < (j.startY ?? 6);
+    if (inStart) { if (p.run.st !== 0) { p.run = { st: 0, t0: 0, tm: 0 }; p.cp = null; p.cpSet = new Set(); } }
+    else if (p.run.st === 0) { p.run = { st: 1, t0: now, tm: 0 }; p.socket.emit('runstart', { t0: now }); }
+    if (p.run.st === 1 && (below === BLOCK.finish || feet === BLOCK.finish)) this.finishRun(p, now);
+  }
+  finishRun(p, now) {
+    const time = now - p.run.t0; p.run = { st: 2, t0: p.run.t0, tm: time };
+    const prev = this.best.get(p.id), isBest = !prev || time < prev.time;
+    if (isBest) this.best.set(p.id, { name: p.name, time });
+    this.emit('finish', { id: p.id, name: p.name, time, best: isBest });
+  }
+
   startMatch() {
+    if (this.run) return this.startRun();
     this.round = 0;
     this.sc = { att: 0, def: 0 };
     this.streak = { att: 0, def: 0 };
     for (const p of this.players.values()) { p.money = CFG.START_MONEY; p.kills = 0; p.deaths = 0; this.resetLoadout(p); p.alive = false; }
-    this.emit('gameStart', { mapId: this.mapId, changes: [] });
+    this.emit('gameStart', { mapId: this.mapId, mode: 'comp', changes: [] });
     this.nextRound();
   }
 
@@ -198,7 +277,7 @@ class Room {
     this.phase = 'freeze';
     this.roundStart = now;
     this.phaseEnd = now + CFG.FREEZE * 1000 * TS;
-    this.emit('round', { n: this.round, sc: this.sc, swapped, mapId: this.mapId });
+    this.emit('round', { n: this.round, sc: this.sc, swapped, mapId: this.mapId, mode: 'comp' });
     for (const p of this.players.values()) p.socket.emit('spawn', { x: p.x, y: p.y, z: p.z, yw: p.yw });
     this.emitLobby();
   }
@@ -381,7 +460,7 @@ class Room {
 
   shoot(p, d) {
     const now = Date.now();
-    if (this.phase !== 'live' || !p.alive) return;
+    if (this.run || this.phase !== 'live' || !p.alive) return;
     const w = WEAPONS[p.weapon];
     if (!w || !w.mag) return;
     const am = p.ammo[p.weapon];
@@ -438,6 +517,7 @@ class Room {
   knife(p, d) {
     const now = Date.now();
     if (this.phase !== 'live' || !p.alive || p.weapon !== 'knife') return;
+    if (this.run) { this.emit('knife', { i: p.id, k: d.k === 'r' ? 'r' : 'l', hit: 0, back: 0 }); return; }
     if (now < p.nextShot) return this.deny(p, now, p.nextShot - now);
     const kind = d.k === 'r' ? KNIFE.right : KNIFE.left;
     p.nextShot = now + kind.rate * 1000;
@@ -484,7 +564,7 @@ class Room {
   }
 
   buy(p, item) {
-    if (!p.alive) return;
+    if (!p.alive || this.run) return;
     const inFreeze = this.phase === 'freeze';
     const inLive = this.phase === 'live' && Date.now() - (this.liveStart || 0) <= CFG.BUY_TIME * 1000 * TS;
     if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
@@ -513,7 +593,7 @@ class Room {
   }
 
   throwNade(p, d) {
-    if (this.phase !== 'live' || !p.alive || p.weapon !== 'grenade' || p.inv.n <= 0) return;
+    if (this.run || this.phase !== 'live' || !p.alive || p.weapon !== 'grenade' || p.inv.n <= 0) return;
     if (Date.now() < p.nextShot) return;
     const f = dirFrom(num(d.yw), clamp(num(d.pt), -1.5, 1.5));
     p.inv.n--;
@@ -646,9 +726,12 @@ class Room {
     if (Number.isFinite(tk) && p.lastTk !== null) { const d = (tk - p.lastTk) / 64; if (d > 0 && d < 1) dtk = d; }
     if (Number.isFinite(tk)) p.lastTk = tk;
     const dEff = dtk !== null ? Math.max(dt, dtk) : dt;
-    const bad = hd > 13 * dEff + 0.4 || y - p.y > 16 * dt + 0.5 || y < -1 || boxCollides(this.world, x, y, z, CFG.HW, H, 0.03);
+    // допустими скорости по режим: surf стига до 87 м/с, parkour има слуз (13 м/с нагоре) и water jump
+    const LIM = this.mode === 'surf' ? { h: 95, v: 95 } : this.mode === 'parkour' ? { h: 14, v: 18 } : { h: 13, v: 16 };
+    if (now - (p.respawnAt || 0) < 120) return;     // позиции, изпратени преди респауна
+    const bad = hd > LIM.h * dEff + 0.4 || y - p.y > LIM.v * dEff + 0.5 || y < -1 || boxBlocked(this.world, x, y, z, CFG.HW, H, 0.03);
     if (bad) { p.socket.emit('correct', { x: p.x, y: p.y, z: p.z }); return; }
-    const inst = dtk !== null ? Math.min(hd / dtk, 14) : Math.min(hd / Math.max(dt, 0.03), 14);
+    const inst = dtk !== null ? Math.min(hd / dtk, this.mode === 'surf' ? 95 : 14) : Math.min(hd / Math.max(dt, 0.03), this.mode === 'surf' ? 95 : 14);
     p.spd = p.spd * 0.5 + inst * 0.5;
     // щети от падане (като в CS: над 580 ед/с)
     const g = !!s.g;
@@ -657,7 +740,7 @@ class Room {
       p.wasAir = false;
       const fall = p.peak - y;
       const inWater = this.world.get(Math.floor(x), Math.floor(y), Math.floor(z)) === BLOCK.water || this.world.get(Math.floor(x), Math.floor(y + 0.5), Math.floor(z)) === BLOCK.water;
-      if (fall > 1 && !inWater) {
+      if (fall > 1 && !inWater && !this.run) {
         const v = Math.sqrt(2 * MOVE.GRAVITY * fall);
         if (v > MOVE.FALL_SAFE) this.hurt(p, null, (v * 40 - 580) * 0.225, 'fall', false, { noArmor: true, ignoreTeam: true });
       }
@@ -667,6 +750,7 @@ class Room {
     p.yw = num(s.yw); p.pt = clamp(num(s.pt), -1.56, 1.56);
     p.hist.push({ t: now, x, y, z, cr });
     while (p.hist.length && now - p.hist[0].t > 1200) p.hist.shift();
+    if (this.run) this.runState(p, now);
   }
 
   // ----- тик -----
@@ -674,6 +758,7 @@ class Room {
     const dt = clamp((now - this.lastTick) / 1000, 0.001, 0.1);
     this.lastTick = now;
     if (this.phase === 'lobby') return;
+    if (this.run) { this.broadcast(now); return; }
 
     for (const p of this.players.values()) {
       if (p.reloadEnd && now >= p.reloadEnd) {
@@ -702,8 +787,9 @@ class Room {
   broadcast(now) {
     const pl = [];
     for (const p of this.players.values())
-      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
+      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, rs: p.run ? p.run.st : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
     const snap = {
+      mode: this.mode, lb: this.run ? [...this.best.entries()].map(([id, b]) => [b.name, b.time, id]).sort((a, b) => a[1] - b[1]).slice(0, 10) : undefined,
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
       bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
@@ -718,6 +804,7 @@ class Room {
         rl: p.reloadEnd > now ? 1 : 0, tm: p.team,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
+        rn: this.run && p.run ? { st: p.run.st, t0: p.run.t0, tm: p.run.tm, cps: p.cpSet ? p.cpSet.size : 0, total: this.map.cpCount } : null,
       });
     }
   }
@@ -746,8 +833,9 @@ io.on('connection', socket => {
     r.emitLobby();
     for (const q of r.players.values()) socket.emit('cos', { i: q.id, cos: q.cos });
     if (r.phase !== 'lobby') {
-      socket.emit('gameStart', { mapId: r.mapId, changes: r.changes });
-      socket.emit('round', { n: r.round, sc: r.sc, late: true, mapId: r.mapId });
+      socket.emit('gameStart', { mapId: r.mapId, mode: r.mode, changes: r.changes });
+      socket.emit('round', { n: r.round, sc: r.sc, late: true, mapId: r.mapId, mode: r.mode });
+      if (r.run) { r.spawnRun(p, r.players.size); r.sendSpawn(p, false); }
     }
   });
 
@@ -756,8 +844,20 @@ io.on('connection', socket => {
     p.team = t; room.emitLobby();
   });
   socket.on('setMap', id => {
-    if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !MAPS[id]) return;
+    if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !MAPS[id] || MAPS[id].mode !== room.mode) return;
     room.mapId = id; room.emitLobby();
+  });
+  socket.on('setMode', m => {
+    if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !['comp', 'parkour', 'surf'].includes(m)) return;
+    room.mode = m;
+    if (MAPS[room.mapId]?.mode !== m) room.mapId = Object.values(MAPS).filter(x => x.mode === m).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0))[0]?.json.id || room.mapId;
+    room.emitLobby();
+  });
+  socket.on('cp', () => { if (room && p && room.run && p.alive) room.respawnRun(p, 'cp'); });
+  socket.on('restart', () => { if (room && p && room.run && p.alive) room.restartRun(p); });
+  socket.on('tolobby', () => {
+    if (!room || room.hostId !== p.id || room.phase === 'lobby') return;
+    room.phase = 'lobby'; room.nades = []; room.bomb = null; room.drop = null; room.emitLobby();
   });
   socket.on('start', () => {
     if (!room || room.hostId !== p.id || room.phase !== 'lobby') return;

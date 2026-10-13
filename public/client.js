@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
 import { WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
+import { stepBody, platformsAt } from '/shared/physics.js';
 import { buildAtlas, BLOCK_TILES } from './textures.js';
 import { WorldRenderer } from './mesher.js';
 import { audio } from './audio.js';
@@ -30,6 +31,7 @@ const S = {
   // стрелба
   firing: false, clicked: false, rclick: false, nextFire: 0, shotIdx: 0, lastShotT: 0, punch: [0, 0], punchT: [0, 0],
   buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false, tick: 0, boardPinned: false, everLocked: false,
+  mode: 'comp', wjT: 0, surfing: false, platform: null, groundN: null, jumped: false, platDefs: [], platsNow: [], simT: 0,
 };
 window.__S = S;
 
@@ -60,10 +62,12 @@ document.querySelectorAll('[data-team]').forEach(b => b.onclick = () => socket.e
 $('#startBtn').onclick = () => { audio.init(); socket.emit('start'); };
 $('#mapSel').onchange = e => socket.emit('setMap', e.target.value);
 $('#backBtn').onclick = () => leaveRoom();
+document.querySelectorAll('.modeBtn').forEach(b => b.onclick = () => socket.emit('setMode', b.dataset.mode));
+$('#pLobby').onclick = () => socket.emit('tolobby');
 
 // Напускане на стаята (бутон „Назад“ в лобито и „Излез в главното меню“ в паузата). Без презареждане на страницата.
 function leaveRoom() {
-  socket.emit('leave');
+  socket.emit('leave'); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
   S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
   S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
   if (document.pointerLockElement) document.exitPointerLock();
@@ -101,9 +105,13 @@ socket.on('lobby', L => {
     $(t === 'att' ? '#listAtt' : '#listDef').innerHTML = L.players.filter(p => p.team === t)
       .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${esc(p.name)} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}</li>`).join('');
   }
-  const sel = $('#mapSel');
-  if (sel.options.length !== L.maps.length) sel.innerHTML = L.maps.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  const maps = L.maps.filter(m => m.mode === L.mode), sel = $('#mapSel'), key = maps.map(m => m.id).join(',');
+  if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join(''); sel.dataset.key = key; }
   sel.value = L.mapId; sel.disabled = L.hostId !== S.id;
+  document.querySelectorAll('.modeBtn').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = L.hostId !== S.id; });
+  $('.teams').style.display = L.mode === 'comp' ? '' : 'none';
+  $('#runPlayers').style.display = L.mode === 'comp' ? 'none' : '';
+  $('#runPlayers').innerHTML = L.players.map(p => `<span class="chip ${p.id === S.id ? 'me' : ''}">${esc(p.name)}${p.id === L.hostId ? ' ★' : ''}</span>`).join('');
   $('#mapDesc').textContent = L.maps.find(m => m.id === L.mapId)?.desc || '';
   const host = L.hostId === S.id;
   $('#startBtn').style.display = host ? '' : 'none';
@@ -113,7 +121,7 @@ socket.on('lobby', L => {
 });
 
 function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
-  S.inGame = false; S.locked = false; S.everLocked = false;
+  S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
   $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
   for (const m of models.values()) scene.remove(m.g);
@@ -392,12 +400,13 @@ initSkins({ onChange: () => sendLoadout() });
 function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {} }); } catch { } }
 
 // ================= Мрежови събития =================
-socket.on('gameStart', async ({ mapId, changes }) => {
+socket.on('gameStart', async ({ mapId, mode, changes }) => {
+  S.mode = mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.mapReady = (async () => {
     const json = await (await fetch(`/maps/${mapId}.json`)).json();
     S.mapJson = json; S.base = World.fromMap(json); S.world = S.base.clone();
     for (const c of changes) S.world.set(c[0], c[1], c[2], 0);
-    buildWorldMesh(S.world); setupMapDecor(json);
+    buildWorldMesh(S.world); setupMapDecor(json); setupPlatforms(json);
   })();
   await S.mapReady;
   S.inGame = true;
@@ -405,7 +414,7 @@ socket.on('gameStart', async ({ mapId, changes }) => {
   $("#join").classList.add("hidden"); updatePause();
 });
 socket.on('round', async r => {
-  await S.mapReady;
+  await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
   S.crouching = false; S.crouchAmt = 0;
@@ -413,7 +422,11 @@ socket.on('round', async r => {
   if (r.swapped) banner('СМЯНА НА СТРАНИТЕ', '#ffd34d', 3000);
   else toast(`Рунд ${r.n} — натисни B за магазина`, 3000);
 });
-socket.on('spawn', s => { S.vmReset = true; S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; S.yaw = s.yw; S.pitch = 0; S.onGround = false; S.wasGround = true; });
+socket.on('spawn', s => {
+  S.vmReset = !s.quiet; S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; S.yaw = s.yw; S.pitch = 0;
+  S.onGround = false; S.wasGround = true; S.platform = null; S.groundN = null; S.wjT = 0; S.surfing = false; S.inWater = false;
+  if (s.why && WHY[s.why]) toast(WHY[s.why], 1600);
+});
 socket.on('correct', s => { S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; });
 socket.on('snap', s => {
   const off = s.t - Date.now();
@@ -491,6 +504,7 @@ setInterval(() => { const t = performance.now(); socket.emit('ping', () => { S.p
 // Пауза: играта е multiplayer и НЕ спира. Когато мишката се освободи (Esc), персонажът остава на място.
 function updatePause() {
   const show = S.inGame && !S.locked;
+  $('#pLobby').style.display = S.lobby?.hostId === S.id ? '' : 'none';
   $('#clickplay').classList.toggle('hidden', !show);
   if (show) {
     $('#pauseTitle').textContent = S.everLocked ? 'Пауза' : 'Готов ли си?';
@@ -555,7 +569,7 @@ function switchSlot(s) {
   if (target && target !== S.me.w) S.nextFire = Math.max(S.nextFire, Date.now() + CFG.SWITCH_DELAY);
   S.scoped = false; S.shotIdx = 0; socket.emit('switch', s);
 }
-const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyC', 'Space', 'Tab', ...Array.from({ length: 8 }, (_, i) => 'Digit' + (i + 1))]);
+const GAME_KEYS = new Set(['Backspace', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyC', 'Space', 'Tab', ...Array.from({ length: 8 }, (_, i) => 'Digit' + (i + 1))]);
 // Купуване: във freeze и първите CFG.BUY_TIME сек след него, само в зоната около spawn-а на отбора
 function canBuy() {
   const s = S.snap; if (!s || !alive()) return false;
@@ -572,10 +586,11 @@ addEventListener('keydown', e => {
   if (e.repeat) { if (e.code === 'Space' || e.code.startsWith('Control')) e.preventDefault(); return; }
   S.keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
-  if (e.code === 'KeyB') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
+  if (e.code === 'KeyB' && S.mode === 'comp') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
   if (S.buyOpen && /^Digit[1-8]$/.test(e.code)) { socket.emit('buy', ITEMS[+e.code[5] - 1].id); return; }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
-  if (e.code === 'KeyR') socket.emit('reload');
+  if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
+  if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
   if (e.code === 'KeyE') socket.emit('use', true);
   if (e.code === 'KeyG' && alive() && S.me.inv.bomb) socket.emit('dropbomb');
   if (e.code === 'KeyF' && alive() && !S.me.rl && S.phase !== 'lobby') vmod.inspect(Date.now());
@@ -597,82 +612,43 @@ function renderBuy() {
   }).join('');
 }
 
-// ================= Физика на играча (CS2: ускорение, триене, air strafing, bhop с ограничение) =================
+// ================= Физика на играча: споделеното ядро shared/physics.js (CS2: ускорение, триене, air strafing, bhop; вода, рампи, платформи) =================
 function readInput() {
   const can = S.locked && alive() && S.phase !== 'lobby' && S.phase !== 'freeze';   // във freeze (купуване) – само оглеждане
   let fx = 0, fz = 0;
   if (can) { fx = (S.keys.KeyD ? 1 : 0) - (S.keys.KeyA ? 1 : 0); fz = (S.keys.KeyS ? 1 : 0) - (S.keys.KeyW ? 1 : 0); }
-  return { can, fx, fz, crouch: can && !!(S.keys.ControlLeft || S.keys.ControlRight || S.keys.KeyC), walk: can && !!(S.keys.ShiftLeft || S.keys.ShiftRight), jumpHeld: can && !!S.keys.Space };
+  const jumpNow = !!(can && S.jumpAt && performance.now() - S.jumpAt < 130);   // малък буфер преди приземяване (без автоматичен bhop)
+  return { can, fx, fz, crouch: can && !!(S.keys.ControlLeft || S.keys.ControlRight || S.keys.KeyC), walk: can && !!(S.keys.ShiftLeft || S.keys.ShiftRight), jumpNow, jumpHeld: can && !!S.keys.Space };
 }
-const hspeed = v => Math.hypot(v.x, v.z);
-function accelerate(v, wx, wz, wishspeed, accel, dt, cap = Infinity) {
-  const ws = Math.min(wishspeed, cap), cur = v.x * wx + v.z * wz, add = ws - cur;
-  if (add <= 0) return;
-  const a = Math.min(accel * dt * wishspeed, add);
-  v.x += wx * a; v.z += wz * a;
+function physEmit(name, d) {
+  if (name === 'jump') audio.jump(null, d.surface);
+  else if (name === 'land') audio.land(null, d.strength, d.surface);
+  else if (name === 'step') audio.footstep(d.surface, null, 0.5);
+  else if (name === 'bounce') audio.bounce?.();
+  else if (name === 'waterjump') audio.footstep('water', null, 1);
 }
-function simStep(dt, inp) {
-  const W = S.world, p = S.pos, v = S.vel, HW = MOVE.HW;
-  // клякане: хитбоксът се променя веднага; ставането изисква място
-  if (inp.crouch && !S.crouching) S.crouching = true;
-  else if (!inp.crouch && S.crouching && !boxCollides(W, p.x, p.y, p.z, HW, MOVE.STAND_H)) S.crouching = false;
-  const H = S.crouching ? MOVE.CROUCH_H : MOVE.STAND_H;
-  const tgt = S.crouching ? 1 : 0; S.crouchAmt += clamp(tgt - S.crouchAmt, -dt / MOVE.CROUCH_TIME, dt / MOVE.CROUCH_TIME);
-  S.inWater = waterDepth(W, p.x, p.y, p.z, H) > 0.45;
-
+const NO_PLATFORMS = [];
+function stepPhysics(inp, simT) {
   const wdef = WEAPONS[S.me.w];
   let vmax = wdef?.speed ?? 6.25; if (S.scoped && wdef?.scoped) vmax = wdef.scoped;
-  let mult = 1; if (S.crouching) mult = MOVE.CROUCH_MUL; else if (inp.walk) mult = MOVE.WALK_MUL;
-  if (S.inWater) mult *= MOVE.WATER_MUL;
-  const maxSpeed = vmax * mult;
+  const plats = S.platDefs.length ? platformsAt(S.platDefs, simT, MOVE.STEP) : NO_PLATFORMS;
+  S.platsNow = plats;
+  stepBody(S, inp, { world: S.world, vmax, mode: S.mode, platforms: plats, drive: S.mapJson?.drive, emit: physEmit }, MOVE.STEP);
+  if (S.jumped) S.jumpAt = 0;
+}
 
-  const sn = Math.sin(S.yaw), cs = Math.cos(S.yaw);
-  let wx = inp.fx * cs + inp.fz * sn, wz = -inp.fx * sn + inp.fz * cs;
-  const wl = Math.hypot(wx, wz); if (wl > 0) { wx /= wl; wz /= wl; }
-  const wishspeed = wl > 0 ? maxSpeed : 0;
-
-  // скок (без автоматичен bhop: трябва ново натискане; малък буфер преди приземяване)
-  const now = performance.now();
-  if (inp.can && S.jumpAt && now - S.jumpAt < 130 && S.onGround && !S.inWater) {
-    v.y = MOVE.JUMP; S.onGround = false; S.jumpAt = 0;
-    const cap = vmax * (S.crouching ? MOVE.CROUCH_MUL * 3 : 1) * MOVE.BHOP_CAP, hs = hspeed(v);
-    if (hs > cap) { v.x *= cap / hs; v.z *= cap / hs; }
-    audio.jump(null, surfaceAt(p.x, p.y, p.z));
+// движещи се платформи (parkour): мешове от блокове, позицията идва от същата функция като в симулацията
+const platMeshes = [];
+function setupPlatforms(json) {
+  for (const r of platMeshes) { r.clear(); scene.remove(r.group); }
+  platMeshes.length = 0; S.platDefs = json?.platforms || [];
+  for (const def of S.platDefs) {
+    const w = new World(def.size[0], def.size[1], def.size[2]); w.data.fill(BLOCK[def.block || 'metal']);
+    const r = new WorldRenderer(scene, atlas); r.load(w, { ambient: 0.6, sun: 1 }); platMeshes.push(r);
   }
-
-  if (S.inWater) {
-    const hs = hspeed(v); if (hs > 0) { const drop = Math.min(hs, hs * 2.2 * dt + 0.02); v.x *= (hs - drop) / hs; v.z *= (hs - drop) / hs; }
-    accelerate(v, wx, wz, wishspeed, 6, dt);
-    if (inp.jumpHeld) v.y = Math.min(3.4, v.y + 26 * dt); else v.y += (-2.0 - v.y) * Math.min(1, 3 * dt);
-  } else if (S.onGround) {
-    const hs = hspeed(v);
-    if (hs < 0.03) { v.x = 0; v.z = 0; } else { const control = Math.max(hs, MOVE.STOP), drop = control * MOVE.FRICTION * dt, ns = Math.max(0, hs - drop) / hs; v.x *= ns; v.z *= ns; }
-    accelerate(v, wx, wz, wishspeed, MOVE.ACCEL, dt);
-  } else {
-    accelerate(v, wx, wz, wishspeed, MOVE.AIR_ACCEL, dt, MOVE.AIR_CAP);
-    const hs = hspeed(v), cap = MOVE.AIR_MAX * 6.25; if (hs > cap) { v.x *= cap / hs; v.z *= cap / hs; }
-  }
-  if (!S.inWater) v.y = Math.max(-45, v.y - MOVE.GRAVITY * dt);
-
-  const wasGround = S.onGround, vyBefore = v.y;
-  const n = Math.max(1, Math.ceil(Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)) * dt / 0.3)), sd = dt / n;
-  for (let i = 0; i < n; i++) {
-    let d = v.x * sd; p.x += d;
-    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { p.x = d > 0 ? Math.floor(p.x + HW) - HW - 1e-4 : Math.floor(p.x - HW) + 1 + HW + 1e-4; v.x = 0; }
-    d = v.z * sd; p.z += d;
-    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { p.z = d > 0 ? Math.floor(p.z + HW) - HW - 1e-4 : Math.floor(p.z - HW) + 1 + HW + 1e-4; v.z = 0; }
-    d = v.y * sd; p.y += d; S.onGround = false;
-    if (boxCollides(W, p.x, p.y, p.z, HW, H)) {
-      if (d > 0) p.y = Math.floor(p.y + H) - H - 1e-4; else { p.y = Math.floor(p.y) + 1; S.onGround = true; }
-      v.y = 0;
-    }
-  }
-  // приземяване и стъпки (стъпки няма при Shift и клякане)
-  if (S.onGround && !wasGround && vyBefore < -3.5 && !S.inWater) audio.land(null, -vyBefore / 8, surfaceAt(p.x, p.y, p.z));
-  const hs = hspeed(v);
-  if (S.onGround && hs > 1.6 && !inp.walk && !S.crouching) { S.stepAcc += hs * dt; if (S.stepAcc >= 2.0) { S.stepAcc = 0; audio.footstep(surfaceAt(p.x, p.y, p.z), null, 0.5); } }
-  else if (!S.onGround) S.stepAcc = 0;
-  S.speed = hs;
+}
+function updatePlatformMeshes() {
+  for (let i = 0; i < platMeshes.length; i++) { const q = S.platsNow[i]; if (q) platMeshes[i].group.position.set(q.min[0], q.min[1], q.min[2]); }
 }
 
 setInterval(() => {
@@ -739,7 +715,9 @@ function frame(nowMs) {
   // фиксирана стъпка 64 Hz
   const inp = readInput();
   S.acc += dt;
-  while (S.acc >= MOVE.STEP) { S.prev.x = S.pos.x; S.prev.y = S.pos.y; S.prev.z = S.pos.z; simStep(MOVE.STEP, inp); S.tick++; S.acc -= MOVE.STEP; }
+  let simT = serverNow() / 1000 - S.acc;
+  while (S.acc >= MOVE.STEP) { S.prev.x = S.pos.x; S.prev.y = S.pos.y; S.prev.z = S.pos.z; simT += MOVE.STEP; stepPhysics(inp, simT); S.tick++; S.acc -= MOVE.STEP; }
+  updatePlatformMeshes();
   const al = S.acc / MOVE.STEP;
   tryFire(now);
   // откат: мерникът се връща към центъра, когато спреш да стреляш
@@ -768,7 +746,9 @@ function frame(nowMs) {
   const sh = S.shake || 0; S.shake = Math.max(0, sh - dt * 0.8);
   camera.position.set(cp[0] + (Math.random() - .5) * sh, cp[1] + (Math.random() - .5) * sh, cp[2] + (Math.random() - .5) * sh);
   camera.rotation.set(cpitch, cyaw, 0);
-  const targetFov = S.scoped && isAlive ? 22 : settings.fov;
+  const spd3 = Math.hypot(S.vel.x, S.vel.y, S.vel.z), fast = clamp((spd3 - 12) / 40, 0, 1);
+  const targetFov = S.scoped && isAlive ? 22 : settings.fov + fast * 14;
+  audio.setWind(isAlive ? fast : 0);
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }
   const fwd = _lf.set(0, 0, -1).applyQuaternion(camera.quaternion);
   audio.setListener(camera.position.x, camera.position.y, camera.position.z, fwd.x, fwd.y, fwd.z);
@@ -807,6 +787,7 @@ function inSite() {
 let crossGap = 6;
 function updateHud() {
   const s = S.snap, m = S.me; if (!s) return;
+  if (S.mode !== 'comp') return updateRunHud(s, m);
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
   $('#timer').textContent = s.bomb && s.bomb.st === 'planted' ? '💣' : fmt(s.tl);
   const liveEl = s.el - CFG.FREEZE, buyLeft = Math.ceil(CFG.BUY_TIME - liveEl);
@@ -847,6 +828,11 @@ function updateHud() {
 }
 function renderBoard(s) {
   const el = $('#board'); el.classList.remove('hidden');
+  if (S.mode !== 'comp') {
+    const lb = s.lb || [];
+    el.innerHTML = `<h4>Класация – най-добро време</h4><table><tr><th>Играч</th><th>Време</th></tr>${lb.map((r, i) => `<tr class="${r[2] === S.id ? 'me' : ''}"><td>${i + 1}. ${esc(r[0])}</td><td>${fmtT(r[1])}</td></tr>`).join('') || '<tr><td colspan=2>Още няма завършили</td></tr>'}</table><h4>Играчи</h4>${s.pl.map(p => `<span class="chip ${p.i === S.id ? 'me' : ''}">${esc(p.n)}${p.rs === 1 ? ' ▶' : p.rs === 2 ? ' ✔' : ''}</span>`).join(' ')}`;
+    return;
+  }
   const tbl = t => `<h4 style="color:${TEAM_COL[t]}">${TEAM_NAME[t]} — ${s.sc[t]}</h4><table><tr><th>Играч</th><th>У</th><th>С</th></tr>` +
     s.pl.filter(p => p.tm === t).sort((a, b) => b.k - a.k).map(p => `<tr class="${p.i === S.id ? 'me' : ''} ${p.al ? '' : 'dead'}"><td>${esc(p.n)}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('') + '</table>';
   el.innerHTML = tbl('att') + tbl('def') + `<div style="color:#9aa6b8;font-size:13px">Пинг: ${Math.round(S.ping)} мс • Рунд ${s.rd}/${CFG.MAX_ROUNDS} • до ${CFG.WIN_ROUNDS} победи</div>`;
@@ -876,6 +862,36 @@ function menuFrame(dt, now) {
   }
   renderer.render(scene, camera);
 }
+
+// ================= parkour / surf: HUD и събития =================
+const fmtT = ms => { ms = Math.max(0, ms | 0); const m = Math.floor(ms / 60000), s = Math.floor(ms / 1000) % 60, c = ms % 1000; return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(3, '0')}`; };
+const pbKey = () => 'bs_pb_' + (S.mapJson?.id || '');
+function getPb() { try { const v = +localStorage.getItem(pbKey()); return v > 0 ? v : null; } catch { return null; } }
+function updateRunHud(s, m) {
+  const rn = m.rn; if (!rn) return;
+  const t = rn.st === 1 ? serverNow() - rn.t0 : rn.st === 2 ? rn.tm : 0;
+  $('#runTimer').textContent = fmtT(t);
+  $('#runTimer').className = rn.st === 2 ? 'done' : rn.st === 1 ? 'on' : '';
+  $('#runState').textContent = rn.st === 0 ? 'Излез от стартовата зона, за да тръгне таймерът' : rn.st === 2 ? 'Финал! Backspace – нов опит' : '';
+  $('#runCp').textContent = `Checkpoint ${rn.cps}/${rn.total}`;
+  const pb = getPb(); $('#runPb').textContent = pb ? `Лично най-добро: ${fmtT(pb)}` : 'Лично най-добро: –';
+  $('#speedo').textContent = Math.round(S.speed * 40) + ' ед/с';
+  const lb = s.lb || [];
+  $('#lbList').innerHTML = lb.length ? lb.map((r, i) => `<div class="${r[2] === S.id ? 'me' : ''}"><span>${i + 1}. ${esc(r[0])}</span><b>${fmtT(r[1])}</b></div>`).join('') : '<div class="dim">Още няма завършили</div>';
+  $('#spec').classList.add('hidden');
+  if (S.boardOpen || S.boardPinned) renderBoard(s);
+  $('#fps').textContent = fpsShown + ' FPS';
+}
+socket.on('cp', c => { toast(`Checkpoint ${c.n}/${c.total}`, 1600); audio.pickup(); });
+socket.on('runstart', () => { toast('Старт!', 900); audio.beep(null, 0.8, true); });
+socket.on('finish', f => {
+  if (f.id === S.id) {
+    audio.roundEnd(true); let msg = `Финал: ${fmtT(f.time)}`;
+    const pb = getPb(); if (!pb || f.time < pb) { try { localStorage.setItem(pbKey(), String(f.time)); } catch { } msg += ' — нов личен рекорд!'; }
+    banner(msg, '#7cf08a', 4500);
+  } else toast(`${f.name} завърши за ${fmtT(f.time)}`, 2500);
+});
+const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
 initSettings(() => { const t = maxPR(); if (pixelRatio !== t) { pixelRatio = t; resize(); } });
 initMenuBg();

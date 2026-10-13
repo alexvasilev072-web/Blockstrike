@@ -37,10 +37,12 @@
       <div class="row"><button id="backBtn">← Назад</button><h2>Стая <b id="lobCode"></b></h2></div>
       <div class="row"><button class="skinsOpen">Скинове</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
+    <div class="row modes"><span class="sub" style="margin:0">Режим:</span><button class="modeBtn" data-mode="comp">Състезателен</button><button class="modeBtn" data-mode="parkour">Parkour</button><button class="modeBtn" data-mode="surf">Surf</button></div>
     <div class="teams">
       <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><button data-team="att">Премини тук</button></div>
       <div class="team def"><h3>Защитници</h3><ul id="listDef"></ul><button data-team="def">Премини тук</button></div>
     </div>
+    <div id="runPlayers" style="display:none"></div>
     <div class="row">
       <label class="grow">Карта<select id="mapSel"></select></label>
       <button id="startBtn" class="primary">Старт</button>
@@ -70,6 +72,7 @@
       <label>Общо <span class="pair"><input id="setVol" type="range" min="0" max="100"><output id="setVolV"></output></span></label>
       <label>Ефекти <span class="pair"><input id="setVolFx" type="range" min="0" max="100"><output id="setVolFxV"></output></span></label>
       <label>Стъпки <span class="pair"><input id="setVolSteps" type="range" min="0" max="100"><output id="setVolStepsV"></output></span></label>
+      <label class="chk"><input id="setRetro" type="checkbox"> Ретро звук (1.6 стил)</label>
       <h4>Мерник</h4>
       <div class="crossrow">
         <div>
@@ -134,6 +137,12 @@
   <div id="toast"></div>
   <div id="banner"></div>
   <div id="spec" class="hidden"></div>
+  <div id="runhud">
+    <div id="runTimer">0:00.000</div><div id="runState"></div><div id="runCp"></div><div id="runPb"></div>
+    <div id="speedo"></div>
+    <div id="lbBox"><h4>Класация</h4><div id="lbList"></div></div>
+    <div id="runKeys">R – към checkpoint • Backspace – рестарт • Tab – класация</div>
+  </div>
   <div id="fps"></div>
   <div id="buy" class="hidden">
     <h3>МАГАЗИН <small>(B – затвори, 1–8 – купи)</small></h3>
@@ -150,6 +159,7 @@
       <button class="settingsOpen">Настройки</button>
       <button class="skinsOpen">Скинове</button>
       <button id="pBoard">Резултати</button>
+      <button id="pLobby">Към лобито (домакин)</button>
       <button id="pLeave" class="danger">Излез в главното меню</button>
     </div>
   </div>

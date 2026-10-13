@@ -256,6 +256,59 @@ def('lamp', (x, y) => {
   return jit(c, fbm(x, y, 212, 6, 2), 0.12);
 });
 
+// ---- parkour / surf ----
+def('checkpoint', (x, y) => {
+  const d = Math.abs(x - 31.5) + Math.abs(y - 31.5), b = Math.min(x, y, 63 - x, 63 - y);
+  let c = jit([44, 168, 96], fbm(x, y, 221, 6, 3), 0.25);
+  if (b < 4) c = mul([30, 120, 70], b === 3 ? 1.3 : 1);
+  else if (d > 13 && d < 18) c = [236, 255, 240];
+  else if (d < 8) c = mix([200, 255, 220], [60, 190, 110], d / 8);
+  return c;
+});
+def('finish', (x, y) => {
+  const c = ((x >> 3) + (y >> 3)) & 1; let col = c ? [245, 245, 245] : [24, 24, 28];
+  return jit(col, hash(x, y, 231), 0.12);
+});
+def('lava', (x, y) => {
+  const n = fbm(x, y, 241, 4, 4), v = Math.abs(fbm(x, y, 242, 3, 4) - 0.5) * 2;
+  let c = mix([150, 24, 0], [255, 150, 20], n);
+  if (v < 0.09) c = mix([255, 240, 140], [255, 190, 40], v / 0.09);
+  else if (n < 0.34) c = mul(c, 0.55);
+  return jit(c, hash(x, y, 243), 0.1);
+});
+def('slime', (x, y) => {
+  const w = worley(x, y, 5, 251); let c = mix([58, 196, 62], [150, 255, 110], fbm(x, y, 252, 4, 3));
+  if (w.d1 < 5 && w.d1 > 3.6) c = mix(c, [220, 255, 200], 0.65); else if (w.d1 <= 3.6) c = mul(c, 1.12);
+  if (Math.min(x, y, 63 - x, 63 - y) < 2) c = mul(c, 0.7);
+  return c;
+});
+def('slick', (x, y) => {
+  let c = mix([170, 225, 255], [210, 242, 255], fbm(x, y, 261, 4, 3));
+  const d = (x + y) % 40; if (d < 3) c = mix(c, [255, 255, 255], 0.8); else if (d > 6 && d < 8) c = mix(c, [255, 255, 255], 0.35);
+  const b = Math.min(x, y, 63 - x, 63 - y); if (b < 2) c = [90, 160, 220]; else if (b === 2) c = [230, 248, 255];
+  return c;
+});
+def('startpad', (x, y) => {
+  const b = Math.min(x, y, 63 - x, 63 - y);
+  if (b < 4) return b < 2 ? [250, 200, 40] : [210, 160, 20];
+  const inArrow = y > 14 && y < 50 && Math.abs(x - 31.5) < (y - 14) * 0.55 && y < 50;
+  let c = jit([36, 64, 140], fbm(x, y, 271, 6, 3), 0.25);
+  if (inArrow && Math.abs(x - 31.5) < (y - 14) * 0.55 - 3) c = [250, 214, 70];
+  return c;
+});
+def('ramp', (x, y) => {
+  let c = jit([120, 124, 132], fbm(x, y, 281, 8, 4), 0.35);
+  if ((y % 16) < 3) c = mix(c, [236, 140, 40], 0.85);
+  if (Math.min(x, 63 - x) < 2) c = mul(c, 0.7);
+  return c;
+});
+def('surf', (x, y) => {
+  let c = mix([30, 130, 210], [90, 215, 255], fbm(x, y, 291, 4, 3));
+  const gx = x % 16, gy = y % 16; if (gx < 2 || gy < 2) c = mix(c, [235, 250, 255], 0.75);
+  if (Math.min(x, 63 - x) < 3) c = [20, 70, 140];
+  return jit(c, hash(x, y, 292), 0.06);
+});
+
 export const TILE_NAMES = Object.keys(TILES);
 
 // ---------- блок -> плочки ----------
@@ -267,7 +320,9 @@ export const BLOCK_TILES = {
   cont_red: T('conttop_red', 'cont_red'), cont_blue: T('conttop_blue', 'cont_blue'), cont_green: T('conttop_green', 'cont_green'),
   cont_yellow: T('conttop_yellow', 'cont_yellow'), water: T('water'), torch: T('torch'), rail: T('rail'), lamp: T('lamp'),
   cobble: T('cobble'), crate: T('crate'), gravel: T('gravel'),
+  checkpoint: T('checkpoint'), finish: T('finish'), lava: T('lava'), slime: T('slime'), slick: T('slick'), startpad: T('startpad'),
 };
+for (const d of ['e', 'w', 's', 'n']) { BLOCK_TILES['ramp_' + d] = T('ramp'); BLOCK_TILES['surf_lo_' + d] = T('surf'); BLOCK_TILES['surf_hi_' + d] = T('surf'); }
 
 // ---------- атлас ----------
 let cache = null;
