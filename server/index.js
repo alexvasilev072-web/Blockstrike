@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, traverse } from '../shared/world.js';
-import { WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor } from '../shared/weapons.js';
+import { WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT || 3000;
@@ -35,6 +35,7 @@ app.use('/shared', express.static(path.join(ROOT, 'shared')));
 app.use('/maps', express.static(path.join(ROOT, 'server/maps')));
 app.use(express.static(path.join(ROOT, 'public')));
 app.get('/healthz', (_, res) => res.send('ok'));
+app.get('/api/maps', (_, res) => res.json(Object.values(MAPS).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description }))));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true } });
 
@@ -110,7 +111,7 @@ class Room {
       id: socket.id, socket, name, team: 'att', x: 0, y: 1, z: 0, yw: 0, pt: 0, cr: false, g: true, wk: false, sc: false,
       hp: 0, armor: 0, kit: false, alive: false, money: CFG.START_MONEY, kills: 0, deaths: 0, inv: null, ammo: {}, weapon: 'pistol',
       nextShot: 0, reloadEnd: 0, shotIdx: 0, lastShot: 0, using: false, useP: 0, useStart: null, useKind: null,
-      hist: [], lastState: 0, spd: 0, peak: 0, wasAir: false,
+      hist: [], lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
       cos: { knife: 'bayonet', skins: {} },
     };
     const cnt = { att: 0, def: 0 };
@@ -147,7 +148,7 @@ class Room {
     p.inv[w.slot] = id;
     p.weapon = id;
     p.reloadEnd = 0; p.shotIdx = 0;
-    p.nextShot = Date.now() + 400;
+    p.nextShot = Date.now() + CFG.BUY_DELAY;
   }
 
   // ----- мач / рунд -----
@@ -188,13 +189,14 @@ class Room {
       p.x = sx + 0.5; p.y = sy; p.z = sz + 0.5; p.peak = p.y; p.wasAir = false;
       p.yw = p.team === 'att' ? 0 : Math.PI; p.pt = 0;
       p.hist = [{ t: now, x: p.x, y: p.y, z: p.z, cr: false }];
-      p.lastState = now; p.spd = 0;
+      p.lastState = now; p.spd = 0; p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
       this.started[p.team]++;
     }
     // бомбата получава случаен нападател
     const atts = [...this.players.values()].filter(p => p.team === 'att');
     if (atts.length) atts[Math.floor(Math.random() * atts.length)].inv.bomb = true;
     this.phase = 'freeze';
+    this.roundStart = now;
     this.phaseEnd = now + CFG.FREEZE * 1000 * TS;
     this.emit('round', { n: this.round, sc: this.sc, swapped, mapId: this.mapId });
     for (const p of this.players.values()) p.socket.emit('spawn', { x: p.x, y: p.y, z: p.z, yw: p.yw });
@@ -228,6 +230,7 @@ class Room {
     const alive = { att: 0, def: 0 };
     for (const p of this.players.values()) if (p.alive) alive[p.team]++;
     if (this.bomb) {
+      if (this.bomb.exploded || this.bomb.defused) return;
       if (now >= this.bomb.explodeAt) { this.explodeBomb(); return this.endRound('att', 'Бомбата избухна!'); }
       if (alive.def === 0 && this.started.def > 0) return this.endRound('att', 'Всички защитници са елиминирани');
       return;
@@ -238,7 +241,7 @@ class Room {
   }
 
   explodeBomb() {
-    const b = this.bomb;
+    const b = this.bomb; b.exploded = true;
     this.emit('boom', { x: b.x, y: b.y + 0.5, z: b.z, r: CFG.BOMB_RADIUS, big: true });
     for (const p of this.players.values()) {
       if (!p.alive) continue;
@@ -276,12 +279,39 @@ class Room {
     this.emit('feed', { k: attacker ? attacker.name : null, v: victim.name, w: weapon, hd: head, kt: attacker ? attacker.team : null, vt: victim.team });
   }
 
-  dropBomb(p) {
+  // Пуска бомбата надолу до първия твърд блок; във вода или извън картата се връща на последната валидна позиция.
+  settleDrop(x, y, z, p) {
+    const w = this.world, bx = Math.floor(x), bz = Math.floor(z);
+    const fallback = p?.lastGround ? { ...p.lastGround } : { x, y: Math.max(1, y), z };
+    if (bx < 0 || bz < 0 || bx >= w.sx || bz >= w.sz) return fallback;
+    let cy = Math.min(w.sy - 1, Math.floor(y + 0.01));
+    while (cy >= 0) {
+      const b = w.get(bx, cy, bz);
+      if (b === BLOCK.water) return fallback;
+      if (SOLID[b]) break;
+      if (w.get(bx, cy - 1, bz) === BLOCK.water) return fallback;
+      cy--;
+    }
+    if (cy < 0) return fallback;
+    let fy = cy;                          // cy е твърд блок под или в позицията; бомбата е на върха му
+    if (SOLID[w.get(bx, cy, bz)]) fy = cy + 1;
+    return { x, y: fy, z };
+  }
+  dropBomb(p, at = null) {
     p.inv.bomb = false;
     if (this.phase !== 'live' && this.phase !== 'freeze') return;
-    const y = p.y;
-    this.drop = { x: p.x, y, z: p.z };
+    const t = at || { x: p.x, y: p.y, z: p.z };
+    this.drop = this.settleDrop(t.x, t.y, t.z, p);
+    this.dropOwner = at ? p.id : null; this.dropFree = Date.now() + (at ? 1500 : 0);
     this.emit('msg', { t: 'drop' });
+  }
+  // Клавиш G: носителят хвърля бомбата пред себе си
+  throwBomb(p) {
+    if (!p.alive || !p.inv.bomb || (this.phase !== 'live' && this.phase !== 'freeze')) return;
+    const fx = -Math.sin(p.yw), fz = -Math.cos(p.yw);
+    let tx = p.x + fx * 1.6, tz = p.z + fz * 1.6;
+    if (boxCollides(this.world, tx, p.y, tz, 0.2, 0.4)) { tx = p.x; tz = p.z; }
+    this.dropBomb(p, { x: tx, y: p.y + 0.9, z: tz });
   }
 
   breakRadius(cx, cy, cz, R) {
@@ -354,9 +384,9 @@ class Room {
     if (this.phase !== 'live' || !p.alive) return;
     const w = WEAPONS[p.weapon];
     if (!w || !w.mag) return;
-    if (now < p.nextShot || p.reloadEnd > now) return;
     const am = p.ammo[p.weapon];
-    if (!am || am.mag <= 0) { this.reload(p); return; }
+    if (now < p.nextShot || p.reloadEnd > now) return this.deny(p, now, Math.max(p.nextShot, p.reloadEnd) - now);
+    if (!am || am.mag <= 0) { this.reload(p); return this.deny(p, now, 250); }
     am.mag--;
     p.nextShot = now + w.rate * 1000 - 12;
     p.sc = !!d.sc;
@@ -396,10 +426,19 @@ class Room {
     if (am.mag === 0 && am.res > 0) this.reload(p);
   }
 
+  // Сървърът отказа изстрел: връща на клиента реалните патрони и колко още да чака.
+  deny(p, now, wait) {
+    if (now - p.deniedAt < 120) return;
+    p.deniedAt = now;
+    const am = p.ammo[p.weapon];
+    p.socket.emit('denied', { w: p.weapon, mag: p.weapon === 'grenade' ? p.inv.n : am ? am.mag : 0, res: am ? am.res : 0, wait: Math.max(0, Math.round(wait)) });
+  }
+
   // ----- нож -----
   knife(p, d) {
     const now = Date.now();
-    if (this.phase !== 'live' || !p.alive || p.weapon !== 'knife' || now < p.nextShot) return;
+    if (this.phase !== 'live' || !p.alive || p.weapon !== 'knife') return;
+    if (now < p.nextShot) return this.deny(p, now, p.nextShot - now);
     const kind = d.k === 'r' ? KNIFE.right : KNIFE.left;
     p.nextShot = now + kind.rate * 1000;
     const yw = num(d.yw), pt = clamp(num(d.pt), -1.55, 1.55);
@@ -440,12 +479,16 @@ class Room {
     if (!p.alive) return;
     const wid = SLOT_WEAPON(p, slot);
     if (!wid || wid === p.weapon) return;
-    p.weapon = wid; p.reloadEnd = 0; p.nextShot = Date.now() + 450; p.shotIdx = 0; p.sc = false;
+    p.weapon = wid; p.reloadEnd = 0; p.nextShot = Date.now() + CFG.SWITCH_DELAY; p.shotIdx = 0; p.sc = false;
     this.emit('equip', { i: p.id, w: wid });
   }
 
   buy(p, item) {
-    if (this.phase !== 'freeze' || !p.alive) return p.socket.emit('err', 'Времето за купуване изтече');
+    if (!p.alive) return;
+    const inFreeze = this.phase === 'freeze';
+    const inLive = this.phase === 'live' && Date.now() - (this.liveStart || 0) <= CFG.BUY_TIME * 1000 * TS;
+    if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
+    if (!inFreeze && !inBuyZone(this.map.json.spawns[p.team], p.x, p.z)) return p.socket.emit('err', 'Можеш да купуваш само в зоната около spawn-а');
     if (item === 'pistol') return;
     const price = item === 'armor' ? 650 : item === 'kit' ? 400 : WEAPONS[item]?.price;
     if (price === undefined || item === 'knife') return;
@@ -573,6 +616,7 @@ class Room {
     if (!this.drop || this.phase !== 'live') return;
     for (const p of this.players.values()) {
       if (!p.alive || p.team !== 'att' || p.inv.bomb) continue;
+      if (this.dropOwner === p.id && Date.now() < this.dropFree) continue;
       if (Math.hypot(p.x - this.drop.x, p.z - this.drop.z) < CFG.BOMB_PICKUP && Math.abs(p.y - this.drop.y) < 1.5) {
         p.inv.bomb = true; this.drop = null;
         this.emit('msg', { t: 'pickup', by: p.name });
@@ -589,11 +633,23 @@ class Room {
     p.lastState = now;
     const x = Number(s.x), y = Number(s.y), z = Number(s.z);
     if (![x, y, z].every(Number.isFinite)) return;
+    // по време на freeze се приемат само ъглите; позицията не се променя
+    if (this.phase === 'freeze') {
+      p.yw = num(s.yw); p.pt = clamp(num(s.pt), -1.56, 1.56); p.spd = 0;
+      if (Math.hypot(x - p.x, z - p.z) > 0.25 || Math.abs(y - p.y) > 0.6) p.socket.emit('correct', { x: p.x, y: p.y, z: p.z });
+      return;
+    }
     const cr = !!s.cr, H = cr ? MOVE.CROUCH_H : MOVE.STAND_H;
     const hd = Math.hypot(x - p.x, z - p.z);
-    const bad = hd > 13 * dt + 0.4 || y - p.y > 16 * dt + 0.5 || y < -1 || boxCollides(this.world, x, y, z, CFG.HW, H, 0.03);
+    // скорост: разстояние / време по тиковете на симулацията на клиента (64 Hz), а не по момента на пристигане на пакета
+    const tk = Number(s.tk); let dtk = null;
+    if (Number.isFinite(tk) && p.lastTk !== null) { const d = (tk - p.lastTk) / 64; if (d > 0 && d < 1) dtk = d; }
+    if (Number.isFinite(tk)) p.lastTk = tk;
+    const dEff = dtk !== null ? Math.max(dt, dtk) : dt;
+    const bad = hd > 13 * dEff + 0.4 || y - p.y > 16 * dt + 0.5 || y < -1 || boxCollides(this.world, x, y, z, CFG.HW, H, 0.03);
     if (bad) { p.socket.emit('correct', { x: p.x, y: p.y, z: p.z }); return; }
-    p.spd = p.spd * 0.5 + (hd / dt) * 0.5;
+    const inst = dtk !== null ? Math.min(hd / dtk, 14) : Math.min(hd / Math.max(dt, 0.03), 14);
+    p.spd = p.spd * 0.5 + inst * 0.5;
     // щети от падане (като в CS: над 580 ед/с)
     const g = !!s.g;
     if (!g) { if (!p.wasAir) p.peak = p.y; p.peak = Math.max(p.peak, y); p.wasAir = true; }
@@ -606,6 +662,7 @@ class Room {
         if (v > MOVE.FALL_SAFE) this.hurt(p, null, (v * 40 - 580) * 0.225, 'fall', false, { noArmor: true, ignoreTeam: true });
       }
     }
+    if (g && this.world.get(Math.floor(x), Math.floor(y), Math.floor(z)) !== BLOCK.water) p.lastGround = { x, y, z };
     p.x = x; p.y = y; p.z = z; p.cr = cr; p.g = g; p.wk = !!s.wk; p.sc = !!s.sc;
     p.yw = num(s.yw); p.pt = clamp(num(s.pt), -1.56, 1.56);
     p.hist.push({ t: now, x, y, z, cr });
@@ -626,7 +683,7 @@ class Room {
       }
     }
     if (this.phase === 'freeze' && now >= this.phaseEnd) {
-      this.phase = 'live'; this.phaseEnd = now + CFG.LIVE * 1000 * TS;
+      this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.LIVE * 1000 * TS;
     }
     if (this.phase === 'live') {
       this.updateUse(dt, now);
@@ -645,10 +702,10 @@ class Room {
   broadcast(now) {
     const pl = [];
     for (const p of this.players.values())
-      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, sc: p.sc ? 1 : 0 });
+      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
     const snap = {
-      t: now, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
-      bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, tl: Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
+      t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
+      bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
       gr: this.nades.map(g => ({ i: g.id, x: r2(g.x), y: r2(g.y), z: r2(g.z) })),
     };
@@ -720,7 +777,12 @@ io.on('connection', socket => {
   socket.on('reload', () => room && p && p.alive && room.reload(p));
   socket.on('switch', s => room && p && ['pr', 'se', 'kn', 'n'].includes(s) && room.switchTo(p, s));
   socket.on('buy', item => room && p && typeof item === 'string' && room.buy(p, item));
-  socket.on('use', down => { if (p) { p.using = !!down; if (!down) p.useP = 0; } });
+  socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
+  socket.on('dropbomb', () => room && p && room.throwBomb(p));
+  socket.on('leave', cb => {
+    if (room && p) { socket.leave(room.code); room.removePlayer(p.id); room = null; p = null; }
+    if (typeof cb === 'function') cb({ ok: true });
+  });
   if (TEST) socket.on('dbgTp', t => { if (p) { p.x = t.x; p.y = t.y; p.z = t.z; p.hist.push({ t: Date.now(), x: t.x, y: t.y, z: t.z, cr: false }); } });
   socket.on('disconnect', () => { if (room && p) room.removePlayer(p.id); });
 });

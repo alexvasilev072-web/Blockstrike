@@ -3,7 +3,7 @@
 let ctx = null, master = null, comp = null, volume = 0.7;
 try { volume = Math.max(0, Math.min(1, parseFloat(localStorage.getItem('bs_vol') ?? '0.7'))); } catch { }
 if (!Number.isFinite(volume)) volume = 0.7;
-let noiseBuf = null;
+let noiseBuf = null, mixFx = 1, mixSteps = 1;
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -21,8 +21,8 @@ function ensure() {
 }
 
 // Изход за звук: позиционен (PannerNode) или обикновен.
-function out(pos, vol = 1) {
-  const g = ctx.createGain(); g.gain.value = vol;
+function out(pos, vol = 1, kind = 'fx') {
+  const g = ctx.createGain(); g.gain.value = vol * (kind === 'steps' ? mixSteps : mixFx);
   if (pos) {
     const p = ctx.createPanner();
     p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 3.5; p.rolloffFactor = 1.35; p.maxDistance = 200;
@@ -80,7 +80,9 @@ const STEPS = {
 export const audio = {
   init() { ensure(); },
   get volume() { return volume; },
-  setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master) master.gain.value = volume; try { localStorage.setItem('bs_vol', String(volume)); } catch { } },
+  setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master) master.gain.value = volume; },
+
+  setMix({ fx = 1, steps = 1 } = {}) { mixFx = fx; mixSteps = steps; },
 
   setListener(x, y, z, fx, fy, fz) {
     if (!ctx) return; const L = ctx.listener;
@@ -98,9 +100,9 @@ export const audio = {
     noise(o, { dur: kind === 'r' ? 0.26 : 0.16, type: 'bandpass', f: 700, f2: 3200, q: 1.2, vol: 0.35, attack: 0.04 });
     if (hit) { noise(o, { dur: 0.12, type: 'lowpass', f: 700, vol: 0.7, delay: 0.09 }); tone(o, { f: 150, f2: 70, dur: 0.12, vol: 0.4, delay: 0.09 }); }
   },
-  footstep(surface, pos, vol = 1) { if (!ensure()) return; const o = out(pos, pos ? 1.1 : 0.55); (STEPS[surface] || STEPS.stone)(o, vol * rnd(0.85, 1.1)); },
-  jump(pos, surface = 'stone') { if (!ensure()) return; const o = out(pos, pos ? 0.8 : 0.45); noise(o, { dur: 0.1, type: 'bandpass', f: 500, q: 0.6, vol: 0.2 }); (STEPS[surface] || STEPS.stone)(o, 0.5); },
-  land(pos, strength = 1, surface = 'stone') { if (!ensure()) return; const o = out(pos, pos ? 1.1 : 0.7), v = Math.min(1.6, 0.5 + strength * 0.5); (STEPS[surface] || STEPS.stone)(o, v); tone(o, { f: 110, f2: 55, dur: 0.14, vol: 0.3 * v, type: 'sine' }); },
+  footstep(surface, pos, vol = 1) { if (!ensure()) return; const o = out(pos, pos ? 1.1 : 0.55, 'steps'); (STEPS[surface] || STEPS.stone)(o, vol * rnd(0.85, 1.1)); },
+  jump(pos, surface = 'stone') { if (!ensure()) return; const o = out(pos, pos ? 0.8 : 0.45, 'steps'); noise(o, { dur: 0.1, type: 'bandpass', f: 500, q: 0.6, vol: 0.2 }); (STEPS[surface] || STEPS.stone)(o, 0.5); },
+  land(pos, strength = 1, surface = 'stone') { if (!ensure()) return; const o = out(pos, pos ? 1.1 : 0.7, 'steps'), v = Math.min(1.6, 0.5 + strength * 0.5); (STEPS[surface] || STEPS.stone)(o, v); tone(o, { f: 110, f2: 55, dur: 0.14, vol: 0.3 * v, type: 'sine' }); },
   hit(head) { if (!ensure()) return; const o = out(null, 0.9); if (head) { tone(o, { f: 2400, dur: 0.12, vol: 0.3 }); tone(o, { f: 1200, dur: 0.16, vol: 0.2, delay: 0.04 }); noise(o, { dur: 0.05, type: 'highpass', f: 4000, vol: 0.25 }); } else tone(o, { f: 1300, dur: 0.07, vol: 0.28 }); },
   hurt() { if (!ensure()) return; const o = out(null, 1); tone(o, { f: 150, f2: 70, dur: 0.22, type: 'sawtooth', vol: 0.25 }); noise(o, { dur: 0.15, type: 'lowpass', f: 600, vol: 0.4 }); },
   impact(pos, flesh) { if (!ensure()) return; const o = out(pos, 0.9); if (flesh) { noise(o, { dur: 0.08, type: 'lowpass', f: 500, vol: 0.6 }); tone(o, { f: 120, f2: 60, dur: 0.08, vol: 0.3 }); } else { noise(o, { dur: 0.05, type: 'highpass', f: 2500, vol: 0.35 }); tone(o, { f: 2000, f2: 1200, dur: 0.05, type: 'triangle', vol: 0.12 }); } },

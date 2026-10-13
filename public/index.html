@@ -10,15 +10,22 @@
 <body>
 <canvas id="game"></canvas>
 
-<!-- Вход -->
+<!-- Главно меню (върху анимиран 3D фон) -->
 <div id="join" class="screen">
-  <div class="card">
-    <h1>BLOCK<span>STRIKE</span></h1>
+  <div class="menuwrap">
+    <h1 class="logo"><span class="b">BLOCK</span><span class="s">STRIKE</span></h1>
     <p class="sub">Воксел тактически шутър • Нападатели срещу Защитници</p>
-    <label>Име<input id="name" maxlength="16" placeholder="Играч" autocomplete="off"></label>
-    <label>Код на стая <small>(празно = нова стая)</small><input id="room" maxlength="8" placeholder="напр. AB12" autocomplete="off"></label>
-    <label>Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
-    <button id="joinBtn" class="primary">Влез в играта</button>
+    <label>Име на играча<input id="name" maxlength="16" placeholder="Играч" autocomplete="off"></label>
+    <button id="joinQuery" class="primary hidden"></button>
+    <button id="createBtn" class="primary">Създай стая</button>
+    <div class="row">
+      <input id="room" maxlength="8" placeholder="Код на стая" autocomplete="off">
+      <button id="joinBtn">Влез в стая</button>
+    </div>
+    <div class="row">
+      <button class="skinsOpen grow">Скинове</button>
+      <button class="settingsOpen grow">Настройки</button>
+    </div>
     <div id="joinErr" class="err"></div>
   </div>
 </div>
@@ -27,8 +34,8 @@
 <div id="lobby" class="screen hidden">
   <div class="card wide">
     <div class="row between">
-      <h2>Стая <b id="lobCode"></b></h2>
-      <div class="row"><button id="skinsBtn">Скинове</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
+      <div class="row"><button id="backBtn">← Назад</button><h2>Стая <b id="lobCode"></b></h2></div>
+      <div class="row"><button class="skinsOpen">Скинове</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
     <div class="teams">
       <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><button data-team="att">Премини тук</button></div>
@@ -36,7 +43,6 @@
     </div>
     <div class="row">
       <label class="grow">Карта<select id="mapSel"></select></label>
-      <label class="grow">Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
       <button id="startBtn" class="primary">Старт</button>
     </div>
     <p id="mapDesc" class="sub"></p>
@@ -45,14 +51,44 @@
     <details><summary>Управление</summary>
       <p class="keys">WASD – движение • Мишка – оглеждане • Ляв клик – стрелба / бърз удар с нож • Десен клик – мерник (снайпер) / силен удар с нож<br>
       Shift (дръж) – бавно ходене, без стъпки • Ctrl или C – клякане • Space – скок (bhop с ограничение) • R – презареждане • F – inspect<br>
-      B – магазин (в началото на рунда) • 1 основно • 2 пистолет • 3 нож • 4 граната • E (дръж) – залагане / обезвреждане на бомбата • Tab – резултат<br>
+      B – магазин (във freeze и първите 20 сек, в зоната около spawn-а) • 1 основно • 2 пистолет • 3 нож • 4 граната • E (дръж) – залагане / обезвреждане • G – хвърли бомбата • Tab – резултат<br>
       Съвет: „Цял екран“ заключва клавиатурата, за да не затваря Ctrl+W таба.</p>
     </details>
   </div>
 </div>
 
+<!-- Настройки -->
+<div id="settings" class="screen hidden" style="z-index:40">
+  <div class="card wide">
+    <div class="row between"><h2>Настройки</h2><button id="setClose" class="primary" style="width:auto">Готово</button></div>
+    <div class="setgrid">
+      <h4>Мишка и изглед</h4>
+      <label>Чувствителност <span class="pair"><input id="setSens" type="range" min="0.1" max="5" step="0.05"><input id="setSensN" type="number" min="0.1" max="5" step="0.05"></span></label>
+      <label class="chk"><input id="setInvert" type="checkbox"> Обърната вертикална мишка</label>
+      <label>FOV <span class="pair"><input id="setFov" type="range" min="60" max="110" step="1"><output id="setFovV"></output></span></label>
+      <h4>Звук</h4>
+      <label>Общо <span class="pair"><input id="setVol" type="range" min="0" max="100"><output id="setVolV"></output></span></label>
+      <label>Ефекти <span class="pair"><input id="setVolFx" type="range" min="0" max="100"><output id="setVolFxV"></output></span></label>
+      <label>Стъпки <span class="pair"><input id="setVolSteps" type="range" min="0" max="100"><output id="setVolStepsV"></output></span></label>
+      <h4>Мерник</h4>
+      <div class="crossrow">
+        <div>
+          <label>Цвят <input id="setCrossCol" type="color"></label>
+          <label>Размер <span class="pair"><input id="setCrossSize" type="range" min="3" max="24" step="1"><output id="setCrossSizeV"></output></span></label>
+        </div>
+        <div id="crossPrev"><div class="cross"><i></i><i></i><i></i><i></i></div></div>
+      </div>
+      <h4>Графика</h4>
+      <label>Качество <select id="setQuality"><option value="low">Ниско</option><option value="medium">Средно</option><option value="high">Високо</option></select></label>
+      <label class="chk"><input id="setFps" type="checkbox"> Показвай FPS</label>
+      <div class="row"><button class="fsbtn">Цял екран</button><button id="setReset">Нулирай настройките</button></div>
+      <div class="kbdmsg"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Скинове -->
-<div id="skins" class="screen hidden" style="z-index:20">
+<div id="skins" class="screen hidden" style="z-index:30">
   <div class="card wide">
     <div class="row between"><h2>Скинове</h2><button id="skinsClose">Готово</button></div>
     <div class="skinwrap">
@@ -63,6 +99,15 @@
       </div>
     </div>
     <p class="sub">Изборът се пази в браузъра и другите играчи го виждат в играта.</p>
+  </div>
+</div>
+
+<!-- Потвърждение -->
+<div id="confirm" class="screen hidden" style="z-index:50">
+  <div class="card" style="text-align:center">
+    <h2 id="confirmTitle">Сигурен ли си?</h2>
+    <p class="sub" id="confirmText"></p>
+    <div class="row"><button id="confirmYes" class="primary grow">Да</button><button id="confirmNo" class="grow">Не</button></div>
   </div>
 </div>
 
@@ -78,7 +123,7 @@
   <div id="bombTxt"></div>
   <div id="moneyBox">$<span id="money">0</span></div>
   <div id="killfeed"></div>
-  <div id="cross"><i></i><i></i><i></i><i></i></div>
+  <div id="cross" class="cross"><i></i><i></i><i></i><i></i></div>
   <div id="hitmark"></div>
   <div id="scope"></div>
   <div id="vignette"></div>
@@ -95,13 +140,17 @@
     <div id="buyList"></div>
   </div>
   <div id="board" class="hidden"></div>
+  <!-- Пауза: играта продължава, мишката е освободена -->
   <div id="clickplay" class="hidden">
     <div class="panel">
-      <h2>Пауза</h2>
-      <button id="playBtn" class="primary">Играй</button>
-      <label>Звук <input class="vol" type="range" min="0" max="100" value="70"></label>
-      <button class="fsbtn">Цял екран (заключва клавиатурата)</button>
-      <div class="kbdmsg"></div>
+      <h2 id="pauseTitle">Пауза</h2>
+      <p class="sub" id="pauseSub">Играта продължава</p>
+      <button id="playBtn" class="primary">Продължи</button>
+      <div id="pauseNote"></div>
+      <button class="settingsOpen">Настройки</button>
+      <button class="skinsOpen">Скинове</button>
+      <button id="pBoard">Резултати</button>
+      <button id="pLeave" class="danger">Излез в главното меню</button>
     </div>
   </div>
 </div>

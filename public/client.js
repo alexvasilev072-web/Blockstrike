@@ -2,7 +2,8 @@
 // входът и предвиждането на собственото движение (физика като в CS2).
 import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
-import { WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor } from '/shared/weapons.js';
+import { WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
+import { settings, initSettings } from './settings.js';
 import { buildAtlas, BLOCK_TILES } from './textures.js';
 import { WorldRenderer } from './mesher.js';
 import { audio } from './audio.js';
@@ -28,20 +29,20 @@ const S = {
   keys: {}, locked: false, scoped: false,
   // стрелба
   firing: false, clicked: false, rclick: false, nextFire: 0, shotIdx: 0, lastShotT: 0, punch: [0, 0], punchT: [0, 0],
-  buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false,
+  buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false, tick: 0, boardPinned: false, everLocked: false,
 };
 window.__S = S;
 
-// ================= Вход / лоби =================
-const qRoom = new URLSearchParams(location.search).get('room');
-if (qRoom) $('#room').value = qRoom.toUpperCase();
+// ================= Главно меню / лоби =================
+const qRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 $('#name').value = localStorage.getItem('bs_name') || '';
+if (qRoom) { $('#room').value = qRoom; $('#joinQuery').textContent = `Влез в стая ${qRoom}`; $('#joinQuery').classList.remove('hidden'); $('#createBtn').classList.remove('primary'); }
 
-function doJoin() {
+function joinRoom(code) {
   audio.init();
-  const name = $('#name').value.trim();
-  localStorage.setItem('bs_name', name);
-  socket.emit('join', { name, room: $('#room').value.trim() }, res => {
+  const name = $('#name').value.trim(); localStorage.setItem('bs_name', name);
+  $('#joinErr').textContent = '';
+  socket.emit('join', { name, room: code }, res => {
     if (!res.ok) { $('#joinErr').textContent = res.error; return; }
     S.id = res.id; S.code = res.code;
     history.replaceState(null, '', '?room=' + res.code);
@@ -49,17 +50,33 @@ function doJoin() {
     sendLoadout();
   });
 }
-$('#joinBtn').onclick = doJoin;
-$('#room').onkeydown = $('#name').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') doJoin(); };
+$('#createBtn').onclick = () => joinRoom('');
+$('#joinBtn').onclick = () => joinRoom($('#room').value.trim());
+$('#joinQuery').onclick = () => joinRoom(qRoom);
+$('#name').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') joinRoom(qRoom); };
+$('#room').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') joinRoom($('#room').value.trim()); };
 $('#copyLink').onclick = () => { navigator.clipboard?.writeText(location.href); $('#copyLink').textContent = 'Копирано!'; setTimeout(() => $('#copyLink').textContent = 'Копирай линк', 1500); };
 document.querySelectorAll('[data-team]').forEach(b => b.onclick = () => socket.emit('team', b.dataset.team));
 $('#startBtn').onclick = () => { audio.init(); socket.emit('start'); };
 $('#mapSel').onchange = e => socket.emit('setMap', e.target.value);
+$('#backBtn').onclick = () => leaveRoom();
 
-// сила на звука (в менюто и в лобито)
-for (const el of document.querySelectorAll('.vol')) {
-  el.value = Math.round(audio.volume * 100);
-  el.oninput = () => { audio.setVolume(el.value / 100); document.querySelectorAll('.vol').forEach(o => o.value = el.value); audio.init(); };
+// Напускане на стаята (бутон „Назад“ в лобито и „Излез в главното меню“ в паузата). Без презареждане на страницата.
+function leaveRoom() {
+  socket.emit('leave');
+  S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
+  S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
+  if (document.pointerLockElement) document.exitPointerLock();
+  for (const m of models.values()) scene.remove(m.g);
+  models.clear(); S.pbuf.clear();
+  for (const m of nadeMeshes.values()) scene.remove(m);
+  nadeMeshes.clear();
+  if (bombMesh) { scene.remove(bombMesh); bombMesh = null; }
+  if (dropMesh) { scene.remove(dropMesh); dropMesh = null; }
+  for (const id of ['#hud', '#lobby', '#clickplay', '#settings', '#skins', '#confirm', '#board']) $(id).classList.add('hidden');
+  S.boardPinned = false; S.boardOpen = false; S.buyOpen = false;
+  history.replaceState(null, '', location.pathname);
+  $('#join').classList.remove('hidden'); $('#createBtn').classList.add('primary'); $('#joinQuery').classList.add('hidden'); $('#room').value = '';
 }
 
 // цял екран + Keyboard Lock (за да не се затваря табът с Ctrl+W)
@@ -68,7 +85,7 @@ async function goFullscreen() {
   try { await document.documentElement.requestFullscreen({ navigationUI: 'hide' }); } catch { setKbdMsg('Цял екран не е позволен от браузъра. Клякане: C.', false); return; }
   if (navigator.keyboard?.lock) {
     try {
-      await navigator.keyboard.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyC', 'KeyE', 'KeyB', 'Tab', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'Space', 'Escape']);
+      await navigator.keyboard.lock(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyF', 'KeyG', 'KeyC', 'KeyE', 'KeyB', 'Tab', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'Space', 'Escape']);
       setKbdMsg('Цял екран + заключена клавиатура: Ctrl не затваря таба.', true);
     } catch { setKbdMsg('Keyboard Lock не успя. Ползвай C за клякане.', false); }
   } else setKbdMsg('Браузърът не поддържа Keyboard Lock. Клякане: C (вместо Ctrl).', false);
@@ -95,10 +112,10 @@ socket.on('lobby', L => {
   if (L.phase === 'lobby' && S.inGame) leaveGame();
 });
 
-function leaveGame() {
-  S.inGame = false;
+function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
+  S.inGame = false; S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
-  $('#hud').classList.add('hidden'); $('#lobby').classList.remove('hidden');
+  $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
   for (const m of models.values()) scene.remove(m.g);
   models.clear(); S.pbuf.clear();
 }
@@ -106,7 +123,9 @@ function leaveGame() {
 // ================= Three.js =================
 const canvas = $('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-let pixelRatio = Math.min(devicePixelRatio, 1.5);
+const QUAL = { low: 0.7, medium: 1.0, high: 1.5 };
+const maxPR = () => Math.min(devicePixelRatio, QUAL[settings.quality] || 1.5);
+let pixelRatio = maxPR();
 renderer.setPixelRatio(pixelRatio);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, 1, 0.05, 260);
@@ -329,7 +348,7 @@ function updateNades() {
   for (const g of snap.gr) {
     ids.add(g.i);
     let m = nadeMeshes.get(g.i);
-    if (!m) { m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat(0x3c9c3c)); scene.add(m); nadeMeshes.set(g.i, m); }
+    if (!m) { m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat(0x3c9c3c)); m.position.set(g.x, g.y, g.z); scene.add(m); nadeMeshes.set(g.i, m); }
     m.position.lerp(new THREE.Vector3(g.x, g.y, g.z), 0.6);
   }
   for (const [id, m] of nadeMeshes) if (!ids.has(id)) { scene.remove(m); nadeMeshes.delete(id); }
@@ -341,19 +360,28 @@ function bombMeshNew() {
   g.add(body, led); g.led = led; scene.add(g); return g;
 }
 let bombMesh = null, dropMesh = null;
+// Състояния на бомбата от сървъра: planted (тиктака), defused (обезвредена – без звук), exploded (скрита – без звук)
 function updateBomb() {
   const b = S.snap?.bomb, d = S.snap?.bd;
   if (d) { if (!dropMesh) dropMesh = bombMeshNew(); dropMesh.position.set(d.x, d.y, d.z); dropMesh.led.material.color.set((performance.now() % 600) < 200 ? 0xffffff : 0xff2020); }
   else if (dropMesh) { scene.remove(dropMesh); dropMesh = null; }
-  if (!b) { if (bombMesh) { scene.remove(bombMesh); bombMesh = null; } $('#bombTxt').textContent = ''; return; }
+  const txt = $('#bombTxt');
+  if (!b) { if (bombMesh) { scene.remove(bombMesh); bombMesh = null; } txt.textContent = ''; return; }
+  if (b.st === 'exploded') {                       // скрий модела, спри звука
+    if (bombMesh) { scene.remove(bombMesh); bombMesh = null; }
+    txt.style.color = '#ff9a4a'; txt.textContent = 'Бомбата избухна'; return;
+  }
   if (!bombMesh) bombMesh = bombMeshNew();
   bombMesh.position.set(b.x, b.y, b.z);
+  if (b.st === 'defused') {                        // спри звука, покажи „Обезвредена“
+    bombMesh.led.material.color.set(0x35e06a);
+    txt.style.color = '#7cf08a'; txt.textContent = 'Обезвредена'; return;
+  }
   const iv = b.tl > 20 ? 1.0 : b.tl > 10 ? 0.7 : b.tl > 5 ? 0.4 : b.tl > 2 ? 0.2 : 0.1, now = performance.now() / 1000;
   bombMesh.led.material.color.set((now % iv) < 0.08 ? 0xffffff : 0xff2020);
   if (now - S.lastBeep >= iv) { S.lastBeep = now; audio.beep([b.x, b.y + 0.2, b.z], 1, b.tl < 10); }
-  $('#bombTxt').textContent = `💣 Бомба на ${b.s}: ${b.tl.toFixed(1)}с`;
+  txt.style.color = '#ff5a4a'; txt.textContent = `💣 Бомба на ${b.s}: ${b.tl.toFixed(1)}с`;
 }
-
 // ================= HUD помощници =================
 let toastT = 0, bannerT = 0;
 function toast(t, ms = 2200) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), ms); }
@@ -374,7 +402,7 @@ socket.on('gameStart', async ({ mapId, changes }) => {
   await S.mapReady;
   S.inGame = true;
   $('#lobby').classList.add('hidden'); $('#hud').classList.remove('hidden');
-  updatePlayPrompt();
+  $("#join").classList.add("hidden"); updatePause();
 });
 socket.on('round', async r => {
   await S.mapReady;
@@ -398,7 +426,7 @@ socket.on('snap', s => {
     b.push({ t: s.t, x: p.x, y: p.y, z: p.z, yw: p.yw, pt: p.pt, cr: p.cr, g: p.g, wk: p.wk }); if (b.length > 40) b.shift();
   }
   for (const id of S.pbuf.keys()) if (!ids.has(id)) S.pbuf.delete(id);
-  if (prev === 'freeze' && s.ph === 'live') { toast('Рундът започна!', 1500); closeBuy(); }
+  if (prev === 'freeze' && s.ph === 'live') toast('Рундът започна!', 1500);
 });
 socket.on('me', m => { const mag = S.me.mag, same = S.me.w === m.w; S.me = m; if (same && Math.abs(mag - m.mag) === 0) return; });
 socket.on('cos', ({ i, cos }) => S.cosById.set(i, cos));
@@ -421,7 +449,12 @@ socket.on('equip', e => { if (e.i !== S.id) { const p = S.snap?.pl.find(q => q.i
 socket.on('throw', t => { const p = S.snap?.pl.find(q => q.i === t.i); audio.nadeThrow(t.i === S.id ? null : p ? [p.x, p.y + 1.2, p.z] : null); });
 socket.on('hit', h => { const el = $('#hitmark'); el.className = 'on' + (h.hd ? ' head' : ''); void el.offsetWidth; requestAnimationFrame(() => el.className = h.hd ? 'head' : ''); audio.hit(h.hd); });
 socket.on('hurt', h => { const v = $('#vignette'); v.style.transition = 'none'; v.style.opacity = Math.min(1, 0.3 + h.dmg / 60); void v.offsetWidth; v.style.transition = 'opacity .7s'; v.style.opacity = 0; audio.hurt(); });
-socket.on('bought', () => audio.buy());
+socket.on('bought', item => { audio.buy(); const sl = WEAPONS[item]?.slot; if (sl === 'pr' || sl === 'se') S.nextFire = Math.max(S.nextFire, Date.now() + CFG.BUY_DELAY); });
+// сървърът отказа изстрел/удар: връщаме реалните патрони и времето за изчакване (без призрачни изстрели)
+socket.on('denied', d => {
+  if (d.w === S.me.w) { S.me.mag = d.mag; S.me.res = d.res; }
+  S.nextFire = Math.max(S.nextFire, Date.now() + d.wait); S.shotIdx = Math.max(0, S.shotIdx - 1);
+});
 socket.on('err', t => toast(t, 1500));
 socket.on('feed', f => {
   const el = document.createElement('div');
@@ -455,17 +488,53 @@ socket.on('connect_error', () => { $('#joinErr').textContent = 'Няма връ�
 setInterval(() => { const t = performance.now(); socket.emit('ping', () => { S.ping = performance.now() - t; }); }, 2000);
 
 // ================= Вход (клавиатура / мишка) – само event.code =================
-function updatePlayPrompt() { $('#clickplay').classList.toggle('hidden', !S.inGame || S.locked); }
-document.addEventListener('pointerlockchange', () => { S.locked = document.pointerLockElement === canvas; if (!S.locked) { S.firing = false; S.keys = {}; S.boardOpen = false; S.scoped = false; } updatePlayPrompt(); });
+// Пауза: играта е multiplayer и НЕ спира. Когато мишката се освободи (Esc), персонажът остава на място.
+function updatePause() {
+  const show = S.inGame && !S.locked;
+  $('#clickplay').classList.toggle('hidden', !show);
+  if (show) {
+    $('#pauseTitle').textContent = S.everLocked ? 'Пауза' : 'Готов ли си?';
+    $('#pauseSub').textContent = S.everLocked ? 'Играта продължава' : 'Натисни „Играй“, за да хванеш мишката';
+    if (!$('#pauseNote').textContent) $('#playBtn').textContent = S.everLocked ? 'Продължи' : 'Играй';
+  }
+}
+function lockFailed() {   // Chrome не позволява pointer lock веднага след Esc (~1 сек): без грешка, само подканя за клик
+  if (S.locked || !S.inGame) return;
+  $('#pauseNote').textContent = 'Кликни, за да продължиш'; $('#playBtn').textContent = 'Кликни, за да продължиш';
+}
+function requestLock() {
+  audio.init(); $('#pauseNote').textContent = '';
+  try { const p = canvas.requestPointerLock?.(); if (p && p.catch) p.catch(lockFailed); } catch { lockFailed(); }
+  setTimeout(() => { if (!S.locked) lockFailed(); }, 800);
+}
+function releaseInputs() { S.firing = false; S.clicked = false; S.rclick = false; S.keys = {}; S.scoped = false; S.jumpAt = 0; }
+document.addEventListener('pointerlockchange', () => {
+  const was = S.locked; S.locked = document.pointerLockElement === canvas;
+  releaseInputs();
+  if (S.locked) { S.everLocked = true; $('#pauseNote').textContent = ''; }
+  else { S.boardOpen = false; if (was) socket.emit('use', false); }
+  updatePause();
+});
+document.addEventListener('pointerlockerror', lockFailed);
+addEventListener('blur', () => { releaseInputs(); socket.emit('use', false); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseInputs(); socket.emit('use', false); } });
 $('#clickplay').style.pointerEvents = 'auto';
-$('#playBtn').onclick = e => { e.stopPropagation(); audio.init(); canvas.requestPointerLock?.(); };
-$('#clickplay').onclick = e => { if (e.target.closest('.panel')) return; audio.init(); canvas.requestPointerLock?.(); };
+$('#playBtn').onclick = e => { e.stopPropagation(); requestLock(); };
+$('#clickplay').onclick = e => { if (e.target.closest('.panel')) return; requestLock(); };
+$('#pBoard').onclick = () => { S.boardPinned = !S.boardPinned; if (!S.boardPinned) $('#board').classList.add('hidden'); };
+function askConfirm(title, text, onYes) {
+  $('#confirmTitle').textContent = title; $('#confirmText').textContent = text; $('#confirm').classList.remove('hidden');
+  $('#confirmYes').onclick = () => { $('#confirm').classList.add('hidden'); onYes(); };
+  $('#confirmNo').onclick = () => $('#confirm').classList.add('hidden');
+}
+$('#pLeave').onclick = () => askConfirm('Сигурен ли си?', 'Ще напуснеш стаята и ще се върнеш в главното меню.', leaveRoom);
+
 document.addEventListener('mousemove', e => {
   if (!S.locked) return;
-  const k = S.scoped ? 0.35 : 1;
+  const k = S.scoped ? 0.35 : 1, sens = 0.0022 * settings.sens * k;
   S.mdx += e.movementX; S.mdy += e.movementY;
-  S.yaw -= e.movementX * 0.0022 * k;
-  S.pitch = clamp(S.pitch - e.movementY * 0.0022 * k, -1.5, 1.5);
+  S.yaw -= e.movementX * sens;
+  S.pitch = clamp(S.pitch - e.movementY * sens * (settings.invert ? -1 : 1), -1.5, 1.5);
 });
 document.addEventListener('mousedown', e => {
   if (!S.locked) return;
@@ -480,25 +549,41 @@ document.addEventListener('wheel', e => {
   const cur = order.findIndex(s => (s === 'n' ? 'grenade' : s === 'kn' ? 'knife' : S.me.inv[s]) === S.me.w);
   const next = order[(cur + (e.deltaY > 0 ? 1 : -1) + order.length) % order.length]; if (next) switchSlot(next);
 });
-function switchSlot(s) { S.scoped = false; S.shotIdx = 0; socket.emit('switch', s); }
+// След смяна на оръжие сървърът блокира стрелбата за CFG.SWITCH_DELAY мс; клиентът знае същото забавяне (няма „призрачни“ изстрели).
+function switchSlot(s) {
+  const inv = S.me.inv, target = s === 'pr' ? inv.pr : s === 'se' ? inv.se : s === 'kn' ? 'knife' : (inv.n > 0 ? 'grenade' : null);
+  if (target && target !== S.me.w) S.nextFire = Math.max(S.nextFire, Date.now() + CFG.SWITCH_DELAY);
+  S.scoped = false; S.shotIdx = 0; socket.emit('switch', s);
+}
+const GAME_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyC', 'Space', 'Tab', ...Array.from({ length: 8 }, (_, i) => 'Digit' + (i + 1))]);
+// Купуване: във freeze и първите CFG.BUY_TIME сек след него, само в зоната около spawn-а на отбора
+function canBuy() {
+  const s = S.snap; if (!s || !alive()) return false;
+  if (s.ph === 'freeze') return true;
+  if (s.ph === 'live' && S.mapJson) return (s.el - CFG.FREEZE) <= CFG.BUY_TIME && inBuyZone(S.mapJson.spawns[S.me.tm], S.pos.x, S.pos.z);
+  return false;
+}
 addEventListener('keydown', e => {
   if (!S.inGame) return;
+  // Ctrl/Cmd + игрова клавиш не бива да задейства браузърни команди (Ctrl+D отметка, Ctrl+S запазване, Ctrl+A маркиране…)
+  if (S.locked && (e.ctrlKey || e.metaKey) && GAME_KEYS.has(e.code)) e.preventDefault();
+  if (!S.locked) return;
   if (e.code === 'Tab') { e.preventDefault(); S.boardOpen = true; return; }
   if (e.repeat) { if (e.code === 'Space' || e.code.startsWith('Control')) e.preventDefault(); return; }
   S.keys[e.code] = true;
-  if (!S.locked) return;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
-  if (e.code === 'KeyB') { if (S.buyOpen) closeBuy(); else if (S.phase === 'freeze' && alive()) openBuy(); }
+  if (e.code === 'KeyB') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
   if (S.buyOpen && /^Digit[1-8]$/.test(e.code)) { socket.emit('buy', ITEMS[+e.code[5] - 1].id); return; }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit('reload');
   if (e.code === 'KeyE') socket.emit('use', true);
+  if (e.code === 'KeyG' && alive() && S.me.inv.bomb) socket.emit('dropbomb');
   if (e.code === 'KeyF' && alive() && !S.me.rl && S.phase !== 'lobby') vmod.inspect(Date.now());
   if (e.code.startsWith('Control') || e.code === 'KeyC') e.preventDefault();
 });
 addEventListener('keyup', e => {
   S.keys[e.code] = false;
-  if (e.code === 'Tab') { S.boardOpen = false; $('#board').classList.add('hidden'); }
+  if (e.code === 'Tab') { S.boardOpen = false; if (!S.boardPinned) $('#board').classList.add('hidden'); }
   if (e.code === 'KeyE') socket.emit('use', false);
 });
 function openBuy() { S.buyOpen = true; $('#buy').classList.remove('hidden'); renderBuy(); }
@@ -514,7 +599,7 @@ function renderBuy() {
 
 // ================= Физика на играча (CS2: ускорение, триене, air strafing, bhop с ограничение) =================
 function readInput() {
-  const can = S.locked && alive() && S.phase !== 'lobby';
+  const can = S.locked && alive() && S.phase !== 'lobby' && S.phase !== 'freeze';   // във freeze (купуване) – само оглеждане
   let fx = 0, fz = 0;
   if (can) { fx = (S.keys.KeyD ? 1 : 0) - (S.keys.KeyA ? 1 : 0); fz = (S.keys.KeyS ? 1 : 0) - (S.keys.KeyW ? 1 : 0); }
   return { can, fx, fz, crouch: can && !!(S.keys.ControlLeft || S.keys.ControlRight || S.keys.KeyC), walk: can && !!(S.keys.ShiftLeft || S.keys.ShiftRight), jumpHeld: can && !!S.keys.Space };
@@ -593,7 +678,7 @@ function simStep(dt, inp) {
 setInterval(() => {
   if (S.inGame && alive() && S.phase !== 'lobby' && !S.noSend) {
     const moving = S.speed > 0.5;
-    socket.emit('state', { x: S.pos.x, y: S.pos.y, z: S.pos.z, yw: S.yaw, pt: S.pitch, cr: S.crouching, g: S.onGround, wk: moving && !!(S.keys.ShiftLeft || S.keys.ShiftRight), sc: S.scoped });
+    socket.emit('state', { x: S.pos.x, y: S.pos.y, z: S.pos.z, yw: S.yaw, pt: S.pitch, cr: S.crouching, g: S.onGround, wk: moving && !!(S.keys.ShiftLeft || S.keys.ShiftRight), sc: S.scoped, tk: S.tick });
   }
 }, 33);
 
@@ -621,9 +706,10 @@ function tryFire(now) {
   S.nextFire = now + w.rate * 1000;
   m.mag--;
   fireTiming(now, w);
+  const idx = S.shotIdx;   // същият индекс, който сървърът ползва за този куршум (recoilAt(p.shotIdx) преди увеличаването)
   socket.emit('shoot', { yw: S.yaw, pt: S.pitch, sc: S.scoped ? 1 : 0, d: Math.round(100 + S.ping) });
-  S.shotIdx++; S.lastShotT = now;
-  const [ry, rp] = recoilAt(m.w, S.shotIdx); S.punchT = [ry, rp]; S.punch = [ry, rp];
+  const [ry, rp] = recoilAt(m.w, idx); S.punchT = [ry, rp]; S.punch = [ry, rp];
+  S.shotIdx = idx + 1; S.lastShotT = now;
   S.kick = 1;
   const cs = vmod.fire(now); if (cs) spawnCasing(cs);
   audio.shot(m.w, null);
@@ -646,13 +732,14 @@ function frame(nowMs) {
   const dt = Math.min(0.05, Math.max(0, (nowMs - last) / 1000)); last = nowMs;
   fpsAcc += dt; fpsN++; S.frames = (S.frames || 0) + 1;
   if (fpsAcc >= 1) { fpsShown = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; adaptQuality(fpsShown); }
-  if (!S.inGame || !S.world) { renderer.render(scene, camera); return; }
+  if (!S.inGame) { menuFrame(dt, Date.now()); return; }
+  if (!S.world) { renderer.render(scene, camera); return; }
   const now = Date.now();
 
   // фиксирана стъпка 64 Hz
   const inp = readInput();
   S.acc += dt;
-  while (S.acc >= MOVE.STEP) { S.prev.x = S.pos.x; S.prev.y = S.pos.y; S.prev.z = S.pos.z; simStep(MOVE.STEP, inp); S.acc -= MOVE.STEP; }
+  while (S.acc >= MOVE.STEP) { S.prev.x = S.pos.x; S.prev.y = S.pos.y; S.prev.z = S.pos.z; simStep(MOVE.STEP, inp); S.tick++; S.acc -= MOVE.STEP; }
   const al = S.acc / MOVE.STEP;
   tryFire(now);
   // откат: мерникът се връща към центъра, когато спреш да стреляш
@@ -681,7 +768,7 @@ function frame(nowMs) {
   const sh = S.shake || 0; S.shake = Math.max(0, sh - dt * 0.8);
   camera.position.set(cp[0] + (Math.random() - .5) * sh, cp[1] + (Math.random() - .5) * sh, cp[2] + (Math.random() - .5) * sh);
   camera.rotation.set(cpitch, cyaw, 0);
-  const targetFov = S.scoped && isAlive ? 22 : 75;
+  const targetFov = S.scoped && isAlive ? 22 : settings.fov;
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }
   const fwd = _lf.set(0, 0, -1).applyQuaternion(camera.quaternion);
   audio.setListener(camera.position.x, camera.position.y, camera.position.z, fwd.x, fwd.y, fwd.z);
@@ -709,7 +796,7 @@ function adaptQuality(fps) {
   if (!S.inGame) return;
   if (fps < 38) { lowCount++; highCount = 0; } else if (fps > 58) { highCount++; lowCount = 0; } else { lowCount = 0; highCount = 0; }
   if (lowCount >= 3 && pixelRatio > 0.6) { pixelRatio = Math.max(0.6, pixelRatio - 0.2); resize(); lowCount = 0; }
-  else if (highCount >= 8 && pixelRatio < Math.min(devicePixelRatio, 1.5)) { pixelRatio = Math.min(Math.min(devicePixelRatio, 1.5), pixelRatio + 0.1); resize(); highCount = 0; }
+  else if (highCount >= 8 && pixelRatio < maxPR()) { pixelRatio = Math.min(maxPR(), pixelRatio + 0.1); resize(); highCount = 0; }
 }
 
 function inSite() {
@@ -721,8 +808,11 @@ let crossGap = 6;
 function updateHud() {
   const s = S.snap, m = S.me; if (!s) return;
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
-  $('#timer').textContent = s.bomb ? '💣' : fmt(s.tl);
-  $('#phaseTxt').textContent = s.ph === 'freeze' ? `Купуване: ${Math.ceil(s.tl)}с  •  Рунд ${s.rd}` : `Рунд ${s.rd}  •  ${m.tm === 'att' ? 'Нападател' : 'Защитник'}`;
+  $('#timer').textContent = s.bomb && s.bomb.st === 'planted' ? '💣' : fmt(s.tl);
+  const liveEl = s.el - CFG.FREEZE, buyLeft = Math.ceil(CFG.BUY_TIME - liveEl);
+  let ph = s.ph === 'freeze' ? `Купуване: ${Math.ceil(s.tl)}с  •  Рунд ${s.rd}` : `Рунд ${s.rd}  •  ${m.tm === 'att' ? 'Нападател' : 'Защитник'}`;
+  if (s.ph === 'live' && alive() && canBuy()) ph += `  •  Купуване (B): ${buyLeft}с`;
+  $('#phaseTxt').textContent = ph;
   $('#phaseTxt').style.color = TEAM_COL[m.tm];
   $('#money').textContent = m.mo;
   $('#hp b').textContent = Math.max(0, m.hp); $('#ar b').textContent = m.ar;
@@ -730,22 +820,23 @@ function updateHud() {
   const noAmmo = m.w === 'knife';
   $('#ammo').style.visibility = noAmmo ? 'hidden' : 'visible';
   $('#ammo b').textContent = m.mag; $('#ammo span').textContent = m.w === 'grenade' ? '' : ' / ' + m.res;
-  $('#items').textContent = [m.inv.bomb ? '💣 Бомба' : '', m.kit ? '🔧 Kit' : ''].filter(Boolean).join('  ');
+  $('#items').textContent = [m.inv.bomb ? '💣 Бомба (G – хвърли)' : '', m.kit ? '🔧 Kit' : ''].filter(Boolean).join('  ');
   const us = m.us;
   $('#useBar').classList.toggle('hidden', !us);
   if (us) { $('#useBar div').style.width = (us.p * 100) + '%'; $('#useBar span').textContent = us.k === 'plant' ? 'Залагане на бомбата…' : 'Обезвреждане…'; }
   let hint = '';
+  const planted = s.bomb && s.bomb.st === 'planted';
   if (alive()) {
     if (s.ph === 'freeze') hint = 'Натисни B за магазина';
     else if (s.ph === 'live' && m.tm === 'att' && m.inv.bomb && !s.bomb && inSite()) hint = `Дръж E, за да заложиш бомбата (${inSite()})`;
     else if (s.ph === 'live' && m.tm === 'att' && m.inv.bomb && !s.bomb) hint = 'Носиш бомбата – иди на A или B';
-    else if (s.ph === 'live' && m.tm === 'def' && s.bomb && Math.hypot(S.pos.x - s.bomb.x, S.pos.z - s.bomb.z) < 2.4) hint = `Дръж E, за да обезвредиш бомбата (${m.kit ? '5' : '10'}с)`;
+    else if (s.ph === 'live' && m.tm === 'def' && planted && Math.hypot(S.pos.x - s.bomb.x, S.pos.z - s.bomb.z) < 2.4) hint = `Дръж E, за да обезвредиш бомбата (${m.kit ? '5' : '10'}с)`;
   }
   $('#hint').textContent = us ? '' : hint;
   const sp = $('#spec'); sp.classList.toggle('hidden', alive() || s.ph === 'lobby');
   if (!alive()) { const t = s.pl.find(p => p.i === S.specId); sp.textContent = t ? `Наблюдаваш: ${t.n} (клик – следващ)` : 'Мъртъв си'; }
-  if (S.buyOpen) { if (s.ph !== 'freeze') closeBuy(); else renderBuy(); }
-  if (S.boardOpen) renderBoard(s);
+  if (S.buyOpen) { if (!canBuy()) closeBuy(); else renderBuy(); }
+  if (S.boardOpen || S.boardPinned) renderBoard(s);
   // динамичен мерник: колкото си по-неточен, толкова е по-широк
   if (alive() && w?.spread) {
     const spread = spreadFor(m.w, { cr: S.crouching, sc: S.scoped, spd: S.speed, g: S.onGround, idx: S.shotIdx });
@@ -760,3 +851,31 @@ function renderBoard(s) {
     s.pl.filter(p => p.tm === t).sort((a, b) => b.k - a.k).map(p => `<tr class="${p.i === S.id ? 'me' : ''} ${p.al ? '' : 'dead'}"><td>${esc(p.n)}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('') + '</table>';
   el.innerHTML = tbl('att') + tbl('def') + `<div style="color:#9aa6b8;font-size:13px">Пинг: ${Math.round(S.ping)} мс • Рунд ${s.rd}/${CFG.MAX_ROUNDS} • до ${CFG.WIN_ROUNDS} победи</div>`;
 }
+
+// ================= Анимиран 3D фон на менютата =================
+let menuAng = Math.random() * Math.PI * 2, menuLoading = false;
+async function initMenuBg() {
+  if (menuLoading) return; menuLoading = true;
+  try {
+    const list = await (await fetch('/api/maps')).json();
+    const pool = list.filter(m => m.id !== 'mine'), pick = pool[Math.floor(Math.random() * pool.length)] || list[0];
+    const json = await (await fetch(`/maps/${pick.id}.json`)).json();
+    if (S.inGame) return;
+    S.mapJson = json; S.base = World.fromMap(json); S.world = S.base.clone();
+    buildWorldMesh(S.world); setupMapDecor(json);
+  } catch { }
+}
+function menuFrame(dt, now) {
+  if (S.world && S.mapJson) {
+    const [sx, sy, sz] = S.mapJson.size, r = Math.max(sx, sz) * 0.62;
+    menuAng += dt * 0.07;
+    camera.position.set(sx / 2 + Math.cos(menuAng) * r, 14 + Math.sin(menuAng * 0.6) * 3, sz / 2 + Math.sin(menuAng) * r);
+    camera.lookAt(sx / 2, 3, sz / 2);
+    if (camera.fov !== 60) { camera.fov = 60; camera.updateProjectionMatrix(); }
+    if (flames) flames.material.size = 0.85 + Math.sin(now / 90) * 0.1;
+  }
+  renderer.render(scene, camera);
+}
+
+initSettings(() => { const t = maxPR(); if (pixelRatio !== t) { pixelRatio = t; resize(); } });
+initMenuBg();

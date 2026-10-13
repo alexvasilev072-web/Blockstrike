@@ -55,6 +55,6 @@ export function initSkins({ onChange }) {
     t0 = performance.now(); renderTabs(); renderList(); buildPreview(); raf = requestAnimationFrame(loop);
   }
   function hide() { open = false; cancelAnimationFrame(raf); $('#skins').classList.add('hidden'); }
-  $('#skinsBtn').onclick = show; $('#skinsClose').onclick = hide;
+  document.querySelectorAll('.skinsOpen').forEach(b => b.onclick = show); $('#skinsClose').onclick = hide;
   return { cos: () => cos };
 }

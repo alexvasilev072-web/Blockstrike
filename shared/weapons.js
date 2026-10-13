@@ -103,4 +103,14 @@ export const CFG = {
   NADE_RADIUS: 8, NADE_DMG: 98, NADE_BREAK: 3.6, NADE_FUSE: 1.8,
   MAX_PLAYERS: 10,
   BOMB_PICKUP: 1.3,
+  SWITCH_DELAY: 450, BUY_DELAY: 400,          // мс: след смяна на оръжие / купуване не може да се стреля (и на клиента, и на сървъра)
+  BUY_TIME: 20,                               // сек след края на freeze, през които може да се купува в зоната около spawn-а
+  BUY_PAD: 6,                                 // метри около spawn точките на отбора
 };
+
+// Зона за купуване: правоъгълникът около spawn точките на отбора (метри)
+export function inBuyZone(spawns, x, z, pad = CFG.BUY_PAD) {
+  let x1 = 1e9, z1 = 1e9, x2 = -1e9, z2 = -1e9;
+  for (const [sx, sz] of spawns) { x1 = Math.min(x1, sx); z1 = Math.min(z1, sz); x2 = Math.max(x2, sx + 1); z2 = Math.max(z2, sz + 1); }
+  return x >= x1 - pad && x <= x2 + pad && z >= z1 - pad && z <= z2 + pad;
+}

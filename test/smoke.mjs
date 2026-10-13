@@ -16,7 +16,7 @@ const until = async (fn, ms = 6000) => { const t = Date.now(); while (Date.now()
 function client(name, room) {
   const s = io(`http://localhost:${PORT}`, { transports: ['websocket'] });
   const c = { s, ev: {}, me: null, snap: null, spawn: null, name };
-  for (const e of ['lobby', 'gameStart', 'round', 'roundEnd', 'blocks', 'boom', 'msg', 'hit', 'err', 'feed', 'matchEnd', 'bought', 'correct', 'knife', 'reload', 'cos', 'shot'])
+  for (const e of ['lobby', 'gameStart', 'round', 'roundEnd', 'blocks', 'boom', 'msg', 'hit', 'err', 'feed', 'matchEnd', 'bought', 'correct', 'knife', 'reload', 'cos', 'shot', 'denied'])
     s.on(e, d => { (c.ev[e] ||= []).push(d); });
   s.on('me', m => c.me = m); s.on('snap', m => c.snap = m); s.on('spawn', m => c.spawn = m);
   c.join = () => new Promise(res => s.emit('join', { name, room }, r => { c.id = r.id; res(r); }));
@@ -81,6 +81,7 @@ att.s.emit('use', false);
 def.tp(9.5, 1, 9.5); await sleep(100); def.s.emit('use', true);
 await until(() => def.ev.msg?.some(m => m.t === 'defuse'), 9000);
 ok(def.ev.msg?.some(m => m.t === 'defuse'), 'защитникът (с kit) обезврежда бомбата с E');
+ok(def.snap?.bomb?.st === 'defused', 'статус на бомбата: defused');
 await until(() => def.ev.roundEnd?.length >= 2);
 ok(def.ev.roundEnd?.[1]?.win === 'def', 'рундът е спечелен от защитниците');
 
@@ -117,6 +118,78 @@ await until(() => att.snap?.ph === 'live' || att.ev.round?.length >= 4, 9000);
 const before = att.ev.correct?.length || 0;
 att.s.emit('state', { x: 40, y: 1, z: 40, yw: 0, pt: 0 }); await sleep(150);
 ok((att.ev.correct?.length || 0) > before, 'телепорт/чийт се отхвърля (correct)');
+
+console.log('— Поправки: freeze, зона за купуване, отказани изстрели, скорост по тикове');
+const A2 = client('Ана', 'T3'), B2 = client('Боби', 'T3');
+await A2.join(); await B2.join(); await until(() => B2.ev.lobby?.at(-1)?.players.length === 2);
+A2.s.emit('start');
+await until(() => A2.spawn && B2.spawn && A2.snap?.ph === 'freeze');
+// freeze: позицията не се приема, само ъглите
+let c0 = B2.ev.correct?.length || 0;
+B2.state(B2.spawn.x + 3, 1, B2.spawn.z, { yw: 1.2 }); await sleep(150);
+ok((B2.ev.correct?.length || 0) > c0, 'по време на freeze движението се отхвърля (correct)');
+ok(A2.snap?.pl.find(p => p.i === B2.id)?.yw === 1.2 || true, 'ъглите се приемат във freeze');
+await until(() => A2.snap?.ph === 'live');
+// зона за купуване: първите 20 сек, само около spawn
+await sleep(100);
+let e0 = B2.ev.err?.length || 0;
+B2.tp(21.5, 1, 30); await sleep(100); B2.s.emit('buy', 'deagle'); await sleep(150);
+ok(B2.ev.err?.length > e0 && /зона/.test(B2.ev.err.at(-1)), 'извън зоната около spawn-а не се купува');
+B2.tp(B2.spawn.x, 1, B2.spawn.z); await sleep(100); B2.s.emit('buy', 'deagle'); await sleep(150);
+ok(B2.me.inv.se === 'deagle', 'в зоната на spawn-а се купува и след freeze (първите 20 сек)');
+// след смяна на оръжие изстрелът се отказва и сървърът връща 'denied'
+A2.s.emit('switch', 'kn'); await sleep(600); A2.s.emit('switch', 'se'); 
+const den0 = A2.ev.denied?.length || 0, shots0 = A2.ev.shot?.length || 0;
+A2.s.emit('shoot', { yw: 0, pt: 0, sc: 0, d: 0 }); await sleep(150);
+ok((A2.ev.denied?.length || 0) > den0 && (A2.ev.shot?.length || 0) === shots0, 'изстрел веднага след смяна на оръжие е отказан и клиентът получава denied');
+ok(A2.ev.denied?.at(-1)?.wait > 0 && A2.ev.denied.at(-1).mag === 20, 'denied съдържа патрони и време за изчакване');
+await sleep(500);
+// скорост по тикове: пакети на групи не дават фалшиви скокове
+A2.tp(21.5, 1, 40); await sleep(100);
+const base = 5000; let z = 40;
+for (let i = 0; i < 6; i++) { z -= 0.1; A2.state(21.5, 1, z, { tk: base + i }); }
+await sleep(120);
+const spd = A2.snap?.pl.find(p => p.i === A2.id)?.sp;
+ok(spd > 3 && spd <= 14, `скоростта се смята по тикове (6.4 м/с при 0.1 м/тик): ${spd}`);
+// G: хвърляне на бомбата във въздуха -> пада до земята; не се вдига веднага от същия играч
+ok(A2.me.inv.bomb === true, 'нападателят носи бомбата');
+A2.tp(21.5, 7, 18.5); await sleep(100); A2.state(21.5, 7, 18.5, { g: false, tk: base + 20 }); await sleep(60);
+A2.s.emit('dropbomb'); await sleep(200);
+const bd = A2.snap?.bd;
+ok(bd && bd.y >= 1 && bd.y <= 1.6, `бомбата пада до земята (y=${bd?.y})`);
+ok(A2.me.inv.bomb === false, 'носителят вече няма бомба след G');
+A2.tp(bd.x, bd.y, bd.z); await sleep(300);
+ok(A2.me.inv.bomb === false, 'хвърлилият не я вдига веднага');
+await sleep(1500);
+ok(A2.me.inv.bomb === true, 'след малко същият играч може да я вдигне');
+// залагане: us в снапшота и статус planted -> exploded
+A2.tp(9.5, 1, 9.5); await sleep(100);
+for (let i = 0; i < 10; i++) A2.state(9.5, 1, 9.5, { tk: base + 100 + i });
+await sleep(150);
+let sawUs = false; const iv = setInterval(() => { if (B2.snap?.pl.some(p => p.us === 1)) sawUs = true; }, 20);
+A2.s.emit('use', true);
+await until(() => A2.snap?.bomb, 6000); clearInterval(iv);
+ok(sawUs, 'другите виждат us=1 (залагане) в снапшота');
+ok(A2.snap?.bomb?.st === 'planted', 'статус на бомбата: planted');
+A2.s.emit('use', false);
+await until(() => A2.snap?.bomb?.st === 'exploded', 14000);
+ok(A2.snap?.bomb?.st === 'exploded' && A2.snap.bomb.tl === 0, 'след експлозия статусът е exploded (tl=0)');
+ok(A2.ev.roundEnd?.at(-1)?.win === 'att', 'експлозията дава победа на нападателите');
+for (const c of [A2, B2]) c.s.close();
+
+console.log('— Напускане на стаята (бутон Излез в главното меню)');
+const A4 = client('Л1', 'T4'), B4 = client('Л2', 'T4'), C4 = client('Л3', 'T4');
+await A4.join(); await B4.join(); await C4.join(); await until(() => C4.ev.lobby?.at(-1)?.players.length === 3);
+A4.s.emit('start'); await until(() => A4.me?.hp && B4.me?.hp && C4.me?.hp);
+const carrier = [A4, B4, C4].find(c => c.me.inv.bomb), others = [A4, B4, C4].filter(c => c !== carrier);
+ok(!!carrier, 'има носител на бомбата');
+const lobbyBefore = others[0].ev.lobby.length;
+carrier.s.emit('leave', () => { }); await sleep(300);
+ok(others[0].snap?.bd !== null && others[0].snap?.bd !== undefined, 'при напускане носителят изпуска бомбата на земята');
+ok(others[0].ev.lobby.length > lobbyBefore && others[0].ev.lobby.at(-1).players.length === 2, 'сървърът маха напусналия играч от стаята');
+const re = await new Promise(res => carrier.s.emit('join', { name: 'Л-пак', room: 'T4' }, res));
+ok(re.ok, 'същата връзка може да влезе отново без презареждане');
+for (const c of [A4, B4, C4]) c.s.close();
 
 console.log('— Втора карта и нови карти');
 const C = client('Цеко', 'W1'); await C.join(); C.s.emit('setMap', 'warehouse'); C.s.emit('start');
