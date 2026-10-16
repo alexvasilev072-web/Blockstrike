@@ -2,17 +2,17 @@
 // входът и предвиждането на собственото движение (физика като в CS2).
 import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
-import { WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
+import { NADE_IDS, nadePrice, WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
 import { stepBody, platformsAt } from '/shared/physics.js';
 import { Bsp, decodeF32, decodeU8, decodeU32 } from '/shared/bsp.js';
-import { buildAtlas, BLOCK_TILES } from './textures.js';
+import { buildAtlas, BLOCK_TILES, setAtlasFilter } from './textures.js';
 import { WorldRenderer } from './mesher.js';
 import { audio } from './audio.js';
 import { ViewModel } from './viewmodel.js';
 import { initSkins } from './skins.js';
 import { drawRadar, markRadarDirty } from './radar.js';
-import { buildCharacter, armGeoFor, handGeoFor } from './characters.js';
+import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
@@ -157,7 +157,7 @@ addEventListener('resize', resize); resize();
 const atlas = buildAtlas(THREE);
 atlas.texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 const worldR = new WorldRenderer(scene, atlas);
-function buildWorldMesh(world) { worldR.load(world, S.mapJson?.env || {}); buildBspMesh(S.mapJson); }
+function buildWorldMesh(world) { worldR.load(world, { ...(S.mapJson?.env || {}), realistic: settings.realistic }); buildBspMesh(S.mapJson); applyRealism(); }
 
 // ----- GoldSrc (CS 1.6) карта: геометрията е готова триъгълна мрежа с вградено осветление -----
 let bspGroup = null;
@@ -178,6 +178,57 @@ function buildBspMesh(json) {
   mk(decodeF32(m.apos), decodeU8(m.acol), decodeU32(m.aidx), true);
   scene.add(bspGroup);
 }
+
+
+// ----- реалистично небе: градиент, слънце, облаци -----
+let skyGroup = null, skyClouds = [];
+function cloudTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+  for (let i = 0; i < 46; i++) { const x = 40 + Math.random() * 176, y = 40 + Math.random() * 48, r = 14 + Math.random() * 26, gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(255,255,255,0.34)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); }
+  return new THREE.CanvasTexture(c);
+}
+function buildSky(env) {
+  if (skyGroup) { scene.remove(skyGroup); skyGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); skyGroup = null; skyClouds = []; }
+  if (!settings.realistic || !env || !(env.sun > 0.2)) return;
+  skyGroup = new THREE.Group();
+  const top = new THREE.Color(env.sky || '#8fd0ff'), hor = new THREE.Color(env.fogColor || env.sky || '#b9dcff');
+  const zen = top.clone().multiplyScalar(0.62).lerp(new THREE.Color(0x2b5fb0), 0.35), geo = new THREE.SphereGeometry(235, 24, 14), col = [], p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const h = Math.max(0, p.getY(i) / 235), t = Math.pow(h, 0.6), c = hor.clone().lerp(zen, t); col.push(c.r, c.g, c.b); }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  skyGroup.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false })));
+  const sd = (env.sunDir || [-0.55, 0.75, -0.38]), sl = Math.hypot(...sd), sdn = sd.map(v => v / sl);
+  const sunTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'); const gr = g.createRadialGradient(64, 64, 2, 64, 64, 62); gr.addColorStop(0, 'rgba(255,252,235,1)'); gr.addColorStop(0.18, 'rgba(255,244,205,0.95)'); gr.addColorStop(0.5, 'rgba(255,225,160,0.28)'); gr.addColorStop(1, 'rgba(255,220,150,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+  const sun = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true })); sun.scale.set(70, 70, 1); sun.position.set(sdn[0] * 225, sdn[1] * 225, sdn[2] * 225); skyGroup.add(sun);
+  const ct = cloudTexture();
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2 + Math.random() * 0.5, el = 0.2 + Math.random() * 0.45, r = 222;
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: ct, transparent: true, depthWrite: false, fog: false, opacity: 0.75 })); m.scale.set(95 + Math.random() * 70, 38 + Math.random() * 24, 1);
+    m.userData = { a, el, r, sp: 0.004 + Math.random() * 0.006 }; skyGroup.add(m); skyClouds.push(m);
+  }
+  scene.add(skyGroup);
+}
+function updateSky(dt) {
+  if (!skyGroup) return;
+  skyGroup.position.copy(camera.position);
+  for (const m of skyClouds) { m.userData.a += m.userData.sp * dt; const { a, el, r } = m.userData; m.position.set(Math.cos(a) * Math.cos(el) * r, Math.sin(el) * r, Math.sin(a) * Math.cos(el) * r); }
+}
+function applyRealism() { document.body.classList.toggle('real', !!settings.realistic); setAtlasFilter(THREE, atlas.texture, settings.realistic); buildSky(S.mapJson?.env); }
+
+// ----- следи от куршуми по стените -----
+const decals = [];
+const decalMat = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 1, 32, 32, 30); gr.addColorStop(0, 'rgba(10,8,6,0.95)'); gr.addColorStop(0.35, 'rgba(25,20,16,0.8)'); gr.addColorStop(0.7, 'rgba(60,50,40,0.35)'); gr.addColorStop(1, 'rgba(60,50,40,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }); })();
+const decalGeo = new THREE.PlaneGeometry(0.16, 0.16);
+function addDecal(e, dir) {
+  if (!settings.realistic || !S.world) return;
+  // нормалата е по оста, при която точката лежи на цяла координата
+  let ax = -1, best = 0.04; for (let i = 0; i < 3; i++) { const fr = Math.abs(e[i] - Math.round(e[i])); if (fr < best) { best = fr; ax = i; } }
+  if (ax < 0) return;
+  const n = [0, 0, 0]; n[ax] = dir[ax] > 0 ? -1 : 1;
+  const m = new THREE.Mesh(decalGeo, decalMat); m.position.set(e[0] + n[0] * 0.012, e[1] + n[1] * 0.012, e[2] + n[2] * 0.012);
+  m.lookAt(m.position.x + n[0], m.position.y + n[1], m.position.z + n[2]); m.rotation.z += Math.random() * 6.28; m.scale.setScalar(0.6 + Math.random() * 0.6);
+  scene.add(m); decals.push({ m, t: 25 }); if (decals.length > 140) { const o = decals.shift(); scene.remove(o.m); }
+}
+function updateDecals(dt) { for (let i = decals.length - 1; i >= 0; i--) { const d = decals[i]; d.t -= dt; if (d.t < 3) d.m.material = d.m.material; if (d.t <= 0) { scene.remove(d.m); decals.splice(i, 1); } } }
 
 // ----- декор на картата (небе, мъгла, букви на пода, пламъци на факлите) -----
 let mapDeco = [], flames = null;
@@ -227,31 +278,26 @@ function nameSprite(name, col) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthTest: false }));
   s.scale.set(1.6, 0.3, 1); s.position.y = 2.15; s.renderOrder = 9; return s;
 }
-const armGeo = new THREE.BoxGeometry(0.15, 0.15, 1).translate(0, 0, -0.5);
-const handGeo = new THREE.BoxGeometry(0.13, 0.13, 0.13);
-const armGeos = {}, handGeos = {};
+const handGeoS = new THREE.SphereGeometry(0.052, 10, 8);
+const charOf = (id, tm) => { const ch = S.cosById.get(id)?.char; return (ch && typeof ch === 'object' ? ch[tm] : null) || defaultChar(tm); };
 function makeModel(p) {
-  const char = S.cosById.get(p.i)?.char || 'astro', c = buildCharacter(char, p.tm);
-  const g = new THREE.Group(), head = c.head, body = c.body, legL = c.legL, legR = c.legR;
-  const aim = new THREE.Group(); aim.position.set(0, 1.3, 0); aim.rotation.order = 'YXZ';
-  const thin = !!c.thin, ag = armGeos[thin] || (armGeos[thin] = armGeoFor(thin)), hg = handGeos[thin] || (handGeos[thin] = handGeoFor(thin)), armMat = new THREE.MeshBasicMaterial({ color: c.armHex, vertexColors: true });
-  const armR = new THREE.Mesh(ag, armMat), armL = new THREE.Mesh(ag, armMat);
-  const handR = new THREE.Mesh(hg, mat(c.handHex)), handL = new THREE.Mesh(hg, mat(c.handHex));
-  const gunHolder = new THREE.Group(); gunHolder.position.set(0.2, -0.2, -0.42);
-  aim.add(armR, armL, handR, handL, gunHolder);
+  const char = charOf(p.i, p.tm), c = buildCharacter(char, p.tm);
+  const g = new THREE.Group(), rig = new THREE.Group(), head = c.head, body = c.body, legL = c.legL, legR = c.legR;
+  const sh = c.sh, aim = new THREE.Group(); aim.position.set(0, sh.y, 0); aim.rotation.order = 'YXZ';
+  const armR = makeArm(c), armL = makeArm(c), hm = mat(c.handHex);
+  const handR = new THREE.Mesh(handGeoS, hm), handL = new THREE.Mesh(handGeoS, hm);
+  const gunHolder = new THREE.Group(); gunHolder.position.set(0.2, -0.2 - (sh.y - 1.3), -0.42);
+  aim.add(armR.g, armL.g, handR, handL, gunHolder);
   const bomb = box(0.4, 0.14, 0.26, mat(0x2d2d2d)); bomb.position.set(0, 1.05, 0.27); bomb.visible = false;
   const led = box(0.06, 0.04, 0.06, new THREE.MeshBasicMaterial({ color: 0xff2020 })); led.position.set(0.12, 0.09, 0); bomb.add(led);
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.renderOrder = 1;
-  g.add(head, body, legL, legR, aim, bomb, shadow);
-  const m = { char, tick: c.tick, g, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
+  rig.add(head, body, legL, legR, aim, bomb); g.add(rig, shadow);
+  const m = { shX: sh.x, char, tick: c.tick, g, rig, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
   scene.add(g); return m;
 }
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _fwd = new THREE.Vector3(0, 0, -1);
-function setArm(arm, hand, from, to) {
-  _d.copy(to).sub(from); const len = Math.max(0.05, _d.length());
-  arm.position.copy(from); arm.quaternion.setFromUnitVectors(_fwd, _d.normalize()); arm.scale.set(1, 1, len); hand.position.copy(to);
-}
+function setArm(arm, hand, from, to, side) { arm.set(from, to, side); hand.position.copy(to); }
 // оръжие в ръката на играч (воксел модел с LOD = 2 см кубчета), с неговия скин
 function setGun(m, weapon, cos, team) {
   const id = modelIdFor(weapon, cos), skin = skinFor(weapon, cos), key = id + '/' + skin;
@@ -260,15 +306,15 @@ function setGun(m, weapon, cos, team) {
   const gm = buildModel(id, { skin, step: 2, team }), bp = BP[id];
   m.gunHolder.add(gm); m.gunModel = gm; m.bp = bp;
   m.flash = null;
-  if (bp.muzzle && !bp.knife && id !== 'grenade') { m.flash = buildModel('flash', { step: 2 }); m.flash.position.set(bp.muzzle[0] * VS, bp.muzzle[1] * VS, bp.muzzle[2] * VS); m.flash.visible = false; gm.add(m.flash); }
+  if (bp.muzzle && !bp.knife && !NADE_IDS.includes(id)) { m.flash = buildModel('flash', { step: 2 }); m.flash.position.set(bp.muzzle[0] * VS, bp.muzzle[1] * VS, bp.muzzle[2] * VS); m.flash.visible = false; gm.add(m.flash); }
 }
 function poseArms(m) {
   const bp = m.bp; if (!bp) return;
   const gp = m.gunHolder.position;
   _b.set(gp.x + bp.rh[0] * VS, gp.y + bp.rh[1] * VS, gp.z + bp.rh[2] * VS);
-  setArm(m.armR, m.handR, _a.set(0.3, 0, 0), _b);
-  if (bp.lh) { _b.set(gp.x + bp.lh[0] * VS, gp.y + bp.lh[1] * VS, gp.z + bp.lh[2] * VS); setArm(m.armL, m.handL, _a.set(-0.3, 0, 0), _b); }
-  else { _b.set(-0.22, -0.4, -0.12); setArm(m.armL, m.handL, _a.set(-0.3, 0, 0), _b); }
+  setArm(m.armR, m.handR, _a.set(m.shX, 0, 0), _b, 1);
+  if (bp.lh) { _b.set(gp.x + bp.lh[0] * VS, gp.y + bp.lh[1] * VS, gp.z + bp.lh[2] * VS); setArm(m.armL, m.handL, _a.set(-m.shX, 0, 0), _b, -1); }
+  else { _b.set(-0.22, -0.4, -0.12); setArm(m.armL, m.handL, _a.set(-m.shX, 0, 0), _b, -1); }
 }
 
 const lerpAng = (a, b, t) => { const d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return a + d * t; };
@@ -296,7 +342,7 @@ function updateModels(dt) {
     if (p.i === S.id) continue;
     ids.add(p.i);
     let m = models.get(p.i);
-    if (!m || m.team !== p.tm || m.char !== (S.cosById.get(p.i)?.char || 'astro')) { if (m) scene.remove(m.g); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
+    if (!m || m.team !== p.tm || m.char !== charOf(p.i, p.tm)) { if (m) scene.remove(m.g); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
     const pose = poseOf(p.i, rt) || p;
     m.g.visible = !(S.specId === p.i && !alive());
     m.g.position.set(pose.x, pose.y, pose.z);
@@ -306,7 +352,9 @@ function updateModels(dt) {
     m.lastX = pose.x; m.lastZ = pose.z;
     m.phase += Math.min(sp, 8) * dt * 2.2;
     const sw = p.al ? Math.sin(m.phase) * Math.min(1, sp / 4) * 0.8 : 0;
-    m.legL.rotation.x = sw; m.legR.rotation.x = -sw; m.tick?.(performance.now() / 1000, p.al ? sp : 0);
+    { const cr = m.crAmt, kl = Math.min(0, sw) * 1.5 - Math.abs(sw) * 0.12, kr = Math.min(0, -sw) * 1.5 - Math.abs(sw) * 0.12;
+      m.legL.rotation.x = sw * (1 - cr) + cr; m.legR.rotation.x = -sw * (1 - cr) + cr;
+      m.legL.userData.shin.rotation.x = kl * (1 - cr) - 2.0 * cr; m.legR.userData.shin.rotation.x = kr * (1 - cr) - 2.0 * cr; m.rig.position.y = -0.39 * cr; }
     // звуци на другите играчи: стъпки (не се чуват при Shift/клякане), скок, приземяване
     if (p.al && dist < 2) {
       const pos = [pose.x, pose.y + 0.2, pose.z];
@@ -321,8 +369,7 @@ function updateModels(dt) {
     { const sw = (Date.now() - m.swingT) / 380; if (sw >= 0 && sw < 1) { m.aim.rotation.x += -0.9 * Math.sin(sw * Math.PI); m.aim.rotation.y = 0.5 * Math.sin(sw * Math.PI) * (m.swingKind === 'r' ? 0 : 1); } else m.aim.rotation.y = 0; }
     m.lie += ((p.al ? 0 : 1) - m.lie) * Math.min(1, dt * 8);
     m.g.rotation.order = 'YXZ'; m.g.rotation.x = -m.lie * Math.PI / 2;
-    m.g.scale.y = 1 - 0.25 * m.crAmt;
-    m.g.position.y += m.lie * 0.3;
+        m.g.position.y += m.lie * 0.3;
     m.bomb.visible = !!p.bm && !!p.al;
     if (m.flash) m.flash.visible = Date.now() < m.flashUntil;
     // тиктакащ звук при залагане/обезвреждане от други играчи
@@ -379,17 +426,79 @@ function updateFx(dt) {
 
 // ----- гранати и бомба -----
 const nadeMeshes = new Map();
+function nadeMesh(k) {
+  if (k === 'flash') { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.15, 10), mat(0xb7bcc4)); return m; }
+  if (k === 'smoke') { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.18, 10), mat(0x5d7a63)); return m; }
+  if (k === 'molo') { const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.055, 0.17, 10), mat(0x6b4524)), (() => { const r = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.08, 6), mat(0xdd5a1a)); r.position.y = 0.12; return r; })()); return g; }
+  return new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), mat(0x3c9c3c));
+}
 function updateNades() {
   const snap = S.snap; if (!snap) return;
   const ids = new Set();
   for (const g of snap.gr) {
     ids.add(g.i);
     let m = nadeMeshes.get(g.i);
-    if (!m) { m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), mat(0x3c9c3c)); m.position.set(g.x, g.y, g.z); scene.add(m); nadeMeshes.set(g.i, m); }
+    if (!m) { m = nadeMesh(g.k); m.position.set(g.x, g.y, g.z); scene.add(m); nadeMeshes.set(g.i, m); }
+    m.rotation.x += 0.25; m.rotation.z += 0.12;
     m.position.lerp(new THREE.Vector3(g.x, g.y, g.z), 0.6);
   }
   for (const [id, m] of nadeMeshes) if (!ids.has(id)) { scene.remove(m); nadeMeshes.delete(id); }
 }
+
+// ================= Димни облаци, пожари, flashbang =================
+const smokeTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 4, 64, 64, 62); gr.addColorStop(0, 'rgba(235,238,240,1)'); gr.addColorStop(0.55, 'rgba(205,210,214,0.75)'); gr.addColorStop(1, 'rgba(190,196,200,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(150,156,162,' + (0.03 + Math.random() * 0.05) + ')'; g.beginPath(); g.arc(30 + Math.random() * 68, 30 + Math.random() * 68, 8 + Math.random() * 16, 0, 7); g.fill(); }
+  return new THREE.CanvasTexture(c);
+})();
+const smokeObjs = new Map(), fireObjs = new Map();
+function makeSmoke(s) {
+  const g = new THREE.Group(), sprites = [];
+  for (let i = 0; i < 46; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0.92, color: 0xd2d6d9, fog: true }));
+    const u = Math.random(), v = Math.random() * Math.PI * 2, w = Math.acos(2 * Math.random() - 1), rr = s.r * 0.78 * Math.cbrt(u);
+    sp.userData = { d: [Math.sin(w) * Math.cos(v) * rr, Math.abs(Math.cos(w)) * rr * 0.9 + 0.2, Math.sin(w) * Math.sin(v) * rr], size: s.r * (0.75 + Math.random() * 0.55), rot: Math.random() * 6, rs: (Math.random() - 0.5) * 0.25 };
+    g.add(sp); sprites.push(sp);
+  }
+  g.position.set(s.x, s.y, s.z); scene.add(g); return { g, sprites, r: s.r };
+}
+function makeFire(f) {
+  const n = 80, pos = new Float32Array(n * 3), ph = [];
+  for (let i = 0; i < n; i++) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * f.r; pos[i * 3] = Math.cos(a) * r; pos[i * 3 + 2] = Math.sin(a) * r; ph.push(Math.random()); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ map: flameTexture(), size: 0.8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, opacity: 0.8 }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(f.r, 24), new THREE.MeshBasicMaterial({ color: 0xff5a10, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.04;
+  const g = new THREE.Group(); g.add(disc, pts); g.position.set(f.x, f.y, f.z); scene.add(g); return { g, pts, disc, ph, base: pos.slice(), r: f.r, n };
+}
+function updateNadeFx(dt) {
+  const snap = S.snap, tms = performance.now() / 1000;
+  const sm = new Set(), fr = new Set();
+  for (const s of snap?.sm || []) {
+    sm.add(s.i); let o = smokeObjs.get(s.i); if (!o) { o = makeSmoke(s); smokeObjs.set(s.i, o); }
+    const grow = Math.min(1, s.a / 0.9), e = 1 - (1 - grow) ** 2, fade = Math.min(1, s.tl / 2.5);
+    o.sprites.forEach((sp, i) => { const d = sp.userData; sp.position.set(d.d[0] * e, d.d[1] * e, d.d[2] * e); sp.scale.setScalar(d.size * (0.35 + 0.65 * e)); sp.material.rotation = d.rot + tms * d.rs; sp.material.opacity = 0.92 * fade; });
+  }
+  for (const [id, o] of smokeObjs) if (!sm.has(id)) { scene.remove(o.g); o.sprites.forEach(sp => sp.material.dispose()); smokeObjs.delete(id); }
+  for (const f of snap?.fr || []) {
+    fr.add(f.i); let o = fireObjs.get(f.i); if (!o) { o = makeFire(f); fireObjs.set(f.i, o); }
+    const fade = Math.min(1, f.tl / 1.2), arr = o.pts.geometry.attributes.position.array;
+    for (let i = 0; i < o.n; i++) { const t = (tms * (0.7 + (o.ph[i] % 0.5)) + o.ph[i]) % 1; arr[i * 3] = o.base[i * 3] + Math.sin(tms * 3 + i) * 0.05; arr[i * 3 + 1] = t * 1.5 * Math.min(1, f.a / 0.6) + 0.05; arr[i * 3 + 2] = o.base[i * 3 + 2]; }
+    o.pts.geometry.attributes.position.needsUpdate = true; o.pts.material.opacity = 0.8 * fade; o.disc.material.opacity = 0.22 * fade * (0.85 + 0.15 * Math.sin(tms * 12));
+  }
+  for (const [id, o] of fireObjs) if (!fr.has(id)) { scene.remove(o.g); o.pts.geometry.dispose(); fireObjs.delete(id); }
+  // вътре в облак дим се вижда почти нищо
+  { let inside = 0; for (const s of snap?.sm || []) { const d = Math.hypot(camera.position.x - s.x, camera.position.y - (s.y + 1.2), camera.position.z - s.z), k = Math.max(0, Math.min(1, (s.r * 0.95 - d) / (s.r * 0.45))) * Math.min(1, s.a / 0.8); inside = Math.max(inside, k); } const el2 = $('#smokefx'); if (el2) el2.style.opacity = (inside * 0.96).toFixed(3); }
+  // flashbang: бял екран
+  const el = $('#flashfx'), f = S.flashFx;
+  if (f) { const t = (performance.now() - f.t0) / 1000, d = f.d; if (t >= d) { S.flashFx = null; el.style.opacity = 0; } else el.style.opacity = f.a * (t < 0.3 * d ? 1 : Math.pow(1 - (t - 0.3 * d) / (0.7 * d), 1.4)); }
+}
+function clearNadeFx() { for (const o of smokeObjs.values()) { scene.remove(o.g); } for (const o of fireObjs.values()) scene.remove(o.g); smokeObjs.clear(); fireObjs.clear(); S.flashFx = null; const el = $('#flashfx'); if (el) el.style.opacity = 0; const e2 = $('#smokefx'); if (e2) e2.style.opacity = 0; }
+socket.on('flashed', f => { S.flashFx = { t0: performance.now(), d: f.d, a: Math.max(0.5, f.a) }; audio.flashed?.(f.d, f.a); });
+socket.on('smoke', s => audio.smokePop?.([s.x, s.y + 0.3, s.z]));
+socket.on('fire', f => audio.molotov?.([f.x, f.y + 0.3, f.z]));
 function bombMeshNew() {
   const g = new THREE.Group();
   const body = box(0.5, 0.22, 0.34, mat(0x2d2d2d)); body.position.y = 0.11;
@@ -447,7 +556,7 @@ socket.on('round', async r => {
   await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
-  S.crouching = false; S.crouchAmt = 0;
+  S.crouching = false; S.crouchAmt = 0; clearNadeFx();
   audio.roundStart();
   if (r.swapped) banner('СМЯНА НА СТРАНИТЕ', '#ffd34d', 3000);
   else toast(`Рунд ${r.n} — натисни B за магазина`, 3000);
@@ -484,7 +593,10 @@ socket.on('shot', s => {
     const m = models.get(s.i); if (m) m.flashUntil = Date.now() + 60;
     audio.shot(s.w, s.o);
   }
-  for (const e of s.e) { tracer(a, e); spawnParticles(e[0], e[1], e[2], s.hit ? 0xcc2222 : 0xdddddd, s.hit ? 4 : 2, 2); }
+  for (const e of s.e) {
+    tracer(a, e); spawnParticles(e[0], e[1], e[2], s.hit ? 0xcc2222 : 0xdddddd, s.hit ? 4 : 2, 2);
+    if (!s.hit) { const dx = e[0] - a[0], dy = e[1] - a[1], dz = e[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; addDecal(e, [dx / L, dy / L, dz / L]); }
+  }
 });
 socket.on('knife', k => { const mm = models.get(k.i); if (mm) { mm.swingT = Date.now(); mm.swingKind = k.k; } if (k.i !== S.id) { const p = S.snap?.pl.find(q => q.i === k.i); audio.knife(k.k, k.hit, p ? [p.x, p.y + 1, p.z] : null); } });
 socket.on('reload', r => { if (r.i === S.id) { audio.reload(r.w, null); vmod.reload(r.t, Date.now()); }  else { const p = S.snap?.pl.find(q => q.i === r.i); if (p) audio.reload(r.w, [p.x, p.y + 1, p.z]); } });
@@ -513,7 +625,11 @@ socket.on('blocks', list => {
   worldR.refresh(list); markRadarDirty();
   const [x, y, z, b] = list[0]; (b === BLOCK.glass ? audio.glass : audio.breakBlock)([x + 0.5, y + 0.5, z + 0.5]);
 });
-socket.on('boom', b => { explosion(b.x, b.y, b.z, b.r, b.big); audio.boom([b.x, b.y, b.z], b.big); });
+socket.on('boom', b => {
+  if (b.kind === 'flash') { spawnParticles(b.x, b.y, b.z, 0xffffff, 16, 7); audio.flashBang?.([b.x, b.y, b.z]); return; }
+  if (b.kind === 'molotov') { spawnParticles(b.x, b.y, b.z, 0xff8a1e, 18, 6); audio.molotov?.([b.x, b.y, b.z]); return; }
+  explosion(b.x, b.y, b.z, b.r, b.big); audio.boom([b.x, b.y, b.z], b.big);
+});
 socket.on('msg', m => {
   if (m.t === 'plant') { toast(`💣 Бомбата е заложена на ${m.site}!`, 3500); audio.plantDone(S.snap?.bomb ? [S.snap.bomb.x, S.snap.bomb.y, S.snap.bomb.z] : null); }
   if (m.t === 'defuse') { toast('Бомбата е обезвредена!', 3000); audio.defuseDone(null); }
@@ -590,16 +706,16 @@ document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('wheel', e => {
   if (!S.locked || !alive()) return;
   const order = ['pr', 'se', 'kn', 'n'].filter(s => s === 'n' ? S.me.inv.n > 0 : s === 'kn' ? true : S.me.inv[s]);
-  const cur = order.findIndex(s => (s === 'n' ? 'grenade' : s === 'kn' ? 'knife' : S.me.inv[s]) === S.me.w);
+  const cur = order.indexOf(WEAPONS[S.me.w]?.slot);
   const next = order[(cur + (e.deltaY > 0 ? 1 : -1) + order.length) % order.length]; if (next) switchSlot(next);
 });
 // След смяна на оръжие сървърът блокира стрелбата за CFG.SWITCH_DELAY мс; клиентът знае същото забавяне (няма „призрачни“ изстрели).
 function switchSlot(s) {
-  const inv = S.me.inv, target = s === 'pr' ? inv.pr : s === 'se' ? inv.se : s === 'kn' ? 'knife' : (inv.n > 0 ? 'grenade' : null);
-  if (target && target !== S.me.w) S.nextFire = Math.max(S.nextFire, Date.now() + CFG.SWITCH_DELAY);
+  const inv = S.me.inv, target = s === 'pr' ? inv.pr : s === 'se' ? inv.se : s === 'kn' ? 'knife' : (inv.n > 0 ? 'nade' : null);
+  if (target && (target === 'nade' || target !== S.me.w)) S.nextFire = Math.max(S.nextFire, Date.now() + CFG.SWITCH_DELAY);
   S.scoped = false; S.shotIdx = 0; socket.emit('switch', s);
 }
-const GAME_KEYS = new Set(['Backspace', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyC', 'Space', 'Tab', ...Array.from({ length: 8 }, (_, i) => 'Digit' + (i + 1))]);
+const GAME_KEYS = new Set(['Backspace', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 'KeyE', 'KeyF', 'KeyG', 'KeyB', 'KeyC', 'Space', 'Tab', ...Array.from({ length: 10 }, (_, i) => 'Digit' + i), 'Minus']);
 // Купуване: във freeze и първите CFG.BUY_TIME сек след него, само в зоната около spawn-а на отбора
 function canBuy() {
   const s = S.snap; if (!s || !alive()) return false;
@@ -617,7 +733,7 @@ addEventListener('keydown', e => {
   S.keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
   if (e.code === 'KeyB' && S.mode === 'comp') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
-  if (S.buyOpen && /^Digit[1-8]$/.test(e.code)) { socket.emit('buy', ITEMS[+e.code[5] - 1].id); return; }
+  if (S.buyOpen) { const bi = /^Digit[0-9]$/.test(e.code) ? (e.code[5] === '0' ? 9 : +e.code[5] - 1) : e.code === 'Minus' ? 10 : -1; if (bi >= 0 && ITEMS[bi]) { socket.emit('buy', ITEMS[bi].id); return; } }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
   if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
@@ -636,9 +752,10 @@ function closeBuy() { S.buyOpen = false; $('#buy').classList.add('hidden'); }
 function renderBuy() {
   const m = S.me;
   $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + ITEMS.map(it => {
-    const own = it.id === 'armor' ? m.ar >= 100 : it.id === 'grenade' ? m.inv.n >= 1 : it.id === 'kit' ? m.kit : m.inv[WEAPONS[it.id].slot] === it.id;
-    const blocked = it.id === 'kit' && m.tm !== 'def';
-    return `<div class="buyrow ${m.mo < it.price || own || blocked ? 'no' : ''}"><span>[${it.key}] ${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + it.price + '</b>'}</span></div>`;
+    const g = m.inv.g || {}, own = it.id === 'armor' ? m.ar >= 100 : it.id === 'grenade' ? g.he >= 1 : it.id === 'flash' ? g.flash >= 2 : it.id === 'smoke' ? g.smoke >= 1 : it.id === 'molotov' ? g.molo >= 1 : it.id === 'kit' ? m.kit : m.inv[WEAPONS[it.id].slot] === it.id;
+    const blocked = (it.id === 'kit' && m.tm !== 'def') || (NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES);
+    const price = NADE_IDS.includes(it.id) ? nadePrice(it.id, m.tm) : it.price;
+    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>[${it.key}] ${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
   }).join('');
 }
 
@@ -702,7 +819,7 @@ function tryFire(now) {
   }
   if (!S.firing && !clicked) return;
   if (now < S.nextFire) return;
-  if (m.w === 'grenade') {
+  if (NADE_IDS.includes(m.w)) {
     if (clicked && m.mag > 0) { socket.emit('throw', { yw: S.yaw, pt: S.pitch + S.punch[1] }); S.nextFire = now + 700; vmod.cancelInspect(); }
     return;
   }
@@ -755,7 +872,7 @@ function frame(nowMs) {
   if (wd?.rreset && now - S.lastShotT > wd.rreset * 1000) { S.shotIdx = 0; S.punchT = [0, 0]; }
   S.punch[0] += (S.punchT[0] - S.punch[0]) * Math.min(1, dt * 14); S.punch[1] += (S.punchT[1] - S.punch[1]) * Math.min(1, dt * 14);
   S.kick = Math.max(0, S.kick - dt * 9);
-  updateModels(dt); updateNades(); updateBomb(); updateFx(dt);
+  updateModels(dt); updateNades(); updateNadeFx(dt); updateDecals(dt); updateBomb(); updateFx(dt);
   if (flames) flames.material.size = 0.85 + Math.sin(now / 90) * 0.1 + Math.sin(now / 37) * 0.05;
 
   // камера
@@ -775,7 +892,7 @@ function frame(nowMs) {
   if (dbg) { cp = [dbg.x, dbg.y, dbg.z]; cyaw = dbg.yaw; cpitch = dbg.pitch; }
   const sh = S.shake || 0; S.shake = Math.max(0, sh - dt * 0.8);
   camera.position.set(cp[0] + (Math.random() - .5) * sh, cp[1] + (Math.random() - .5) * sh, cp[2] + (Math.random() - .5) * sh);
-  camera.rotation.set(cpitch, cyaw, 0);
+  camera.rotation.set(cpitch, cyaw, 0); updateSky(dt);
   const spd3 = Math.hypot(S.vel.x, S.vel.y, S.vel.z), fast = clamp((spd3 - 12) / 40, 0, 1);
   const targetFov = S.scoped && isAlive ? 22 : settings.fov + fast * 14;
   audio.setWind(isAlive ? fast : 0);
@@ -830,8 +947,9 @@ function updateHud() {
   const w = WEAPONS[m.w]; $('#wname').textContent = (w?.name || '') + (m.rl ? ' — презарежда…' : '');
   const noAmmo = m.w === 'knife';
   $('#ammo').style.visibility = noAmmo ? 'hidden' : 'visible';
-  $('#ammo b').textContent = m.mag; $('#ammo span').textContent = m.w === 'grenade' ? '' : ' / ' + m.res;
-  $('#items').textContent = [m.inv.bomb ? '💣 Бомба (G – хвърли)' : '', m.kit ? '🔧 Kit' : ''].filter(Boolean).join('  ');
+  $('#ammo b').textContent = m.mag; $('#ammo span').textContent = NADE_IDS.includes(m.w) ? '' : ' / ' + m.res;
+  { const g = m.inv.g || {}, nd = [g.he ? 'HE×' + g.he : '', g.flash ? '⚡×' + g.flash : '', g.smoke ? '☁×' + g.smoke : '', g.molo ? '🔥×' + g.molo : ''].filter(Boolean).join(' ');
+    $('#items').textContent = [m.inv.bomb ? '💣 Бомба (G – хвърли)' : '', m.kit ? '🔧 Kit' : '', nd ? 'Гранати: ' + nd + ' (4 – смени)' : ''].filter(Boolean).join('  '); }
   const us = m.us;
   $('#useBar').classList.toggle('hidden', !us);
   if (us) { const nt = performance.now(); if (nt >= (S.useTickT || 0)) { S.useTickT = nt + (us.k === 'plant' ? 500 : 800); (us.k === 'plant' ? audio.plantTick : audio.defuseTick)(null); } } else S.useTickT = 0;
@@ -924,5 +1042,6 @@ socket.on('finish', f => {
 });
 const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
-initSettings(() => { const t = maxPR(); if (pixelRatio !== t) { pixelRatio = t; resize(); } });
+let lastReal = settings.realistic;
+initSettings(() => { const t = maxPR(); if (pixelRatio !== t) { pixelRatio = t; resize(); } if (lastReal !== settings.realistic) { lastReal = settings.realistic; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
 initMenuBg();

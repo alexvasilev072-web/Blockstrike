@@ -12,7 +12,7 @@ const FACES = [
   { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], l: 0.72, t: 'side' },
   { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]], l: 0.72, t: 'side' },
 ];
-for (const f of FACES) { const na = f.n.findIndex(v => v !== 0); f.u = (na + 1) % 3; f.v = (na + 2) % 3; }
+FACES.forEach((f, i) => { const na = f.n.findIndex(v => v !== 0); f.u = (na + 1) % 3; f.v = (na + 2) % 3; f.id = i; });
 const UVC = [[0, 0], [1, 0], [1, 1], [0, 1]];
 const AO = [0.5, 0.68, 0.84, 1.0];
 
@@ -29,6 +29,8 @@ export class WorldRenderer {
 
   load(world, env) {
     this.world = world; this.env = { ambient: 0.22, sun: 1, ...env };
+    const sd = this.env.sunDir || [-0.55, 0.75, -0.38], sl = Math.hypot(...sd); this.sunDir = sd.map(v => v / sl);
+    this.shadows = this.env.realistic !== false && this.env.sun > 0.2; this.shCache = new Map();
     this.clear();
     this.relight();
     for (let cz = 0; cz < Math.ceil(world.sz / CH); cz++) for (let cx = 0; cx < Math.ceil(world.sx / CH); cx++) this.buildChunk(cx, cz);
@@ -42,7 +44,7 @@ export class WorldRenderer {
   // Промяна на блокове -> преизчисляване на светлината и на чънковете наблизо.
   refresh(cells) {
     if (!cells.length) return;
-    this.relight();
+    this.shCache = new Map(); this.relight();
     const set = new Set();
     for (const [x, , z] of cells) {
       for (let cz = Math.floor((z - 9) / CH); cz <= Math.floor((z + 9) / CH); cz++)
@@ -93,10 +95,25 @@ export class WorldRenderer {
     const i = (y * w.sz + z) * w.sx + x; out[0] = this.sky[i]; out[1] = this.blk[i];
   }
 
-  shade(s, b, out) {
-    const e = this.env, fs = Math.pow(s / 15, 1.45) * e.sun, fb = Math.pow(b / 15, 1.45);
+  // дали върхът (x,y,z) с нормала n вижда слънцето (0..1, меки краища от 3 лъча)
+  sunVis(x, y, z, n, f) {
+    const L = this.sunDir, nl = n[0] * L[0] + n[1] * L[1] + n[2] * L[2];
+    if (nl <= 0.02) return 0;
+    const key = ((x * 4096 + y) * 4096 + z) * 8 + f.id; let r = this.shCache.get(key); if (r !== undefined) return r;
+    const w = this.world; let vis = 0;
+    for (let k = -1; k <= 1; k++) {
+      const ox = x + n[0] * 0.04 + (f.u === 0 ? k * 0.28 : 0), oy = y + n[1] * 0.04 + (f.u === 1 ? k * 0.28 : 0), oz = z + n[2] * 0.04 + (f.u === 2 ? k * 0.28 : 0);
+      let hit = false;
+      for (let t = 0.3; t < 16; t += 0.7) { const px = ox + L[0] * t, py = oy + L[1] * t, pz = oz + L[2] * t; if (py >= w.sy) break; if (OPAQUE[w.get(Math.floor(px), Math.floor(py), Math.floor(pz))]) { hit = true; break; } }
+      if (!hit) vis += 1 / 3;
+    }
+    r = vis * Math.min(1, 0.45 + nl * 0.8); this.shCache.set(key, r); return r;
+  }
+  shade(s, b, out, sv = 1) {
+    const e = this.env, fsBase = Math.pow(s / 15, 1.45) * e.sun, fs = this.shadows ? fsBase * (0.58 + 0.42 * sv) : fsBase, fb = Math.pow(b / 15, 1.45);
     const v = e.ambient + (1 - e.ambient) * Math.max(fs, fb), warm = Math.max(0, Math.min(1, fb - fs));
     out[0] = v; out[1] = v * (1 - 0.2 * warm); out[2] = v * (1 - 0.5 * warm);
+    if (this.shadows) { const sunny = sv * Math.min(1, fsBase * 1.2); out[0] *= 1 + 0.07 * sunny; out[2] *= 1 - 0.09 * sunny + 0.05 * (1 - sv) * fsBase; }   // топла светлина на слънце, по-хладна сянка
   }
 
   // ---- мрежа на чънк ----
@@ -136,7 +153,8 @@ export class WorldRenderer {
             this.lightOf(cc[0], cc[1], cc[2], lt); ss += lt[0]; bb += lt[1]; n++;
           }
           if (n) { ss /= n; bb /= n; }
-          this.shade(ss, bb, rgb);
+          const sunv = this.shadows && !def.emit && ss > 8 ? this.sunVis(x + c[0], y + c[1] * h, z + c[2], f.n, f) : 1;
+          this.shade(ss, bb, rgb, sunv);
           const k = f.l * AO[ao];
           bucket.col.push(def.emit ? 1 : rgb[0] * k, def.emit ? 1 : rgb[1] * k, def.emit ? 0.95 : rgb[2] * k);
           bucket.pos.push(x + c[0], y + c[1] * h, z + c[2]);

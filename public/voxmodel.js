@@ -85,6 +85,24 @@ export const BP = {
     pivots: { lever: [1, 5, 0], pin: [0, 9, 0] },
     muzzle: [0, 0, 0], rh: [0, -2, 0], lh: null,
   },
+  flash: {
+    a: [176, 180, 188],
+    parts: { body: [[-2, 0, -3, 2, 12, 3, 'a'], [-3, 0, -2, 3, 12, 2, 'a'], [-3, 4, -2, 3, 6, 2, 'm'], [-1, 12, -1, 1, 13, 1, 'M']], lever: [[2, 3, -1, 4, 12, 1, 'M']], pin: [[-1, 13, -1, 1, 15, 1, 'M']] },
+    pivots: { lever: [3, 12, 0], pin: [0, 14, 0] },
+    muzzle: [0, 0, 0], rh: [0, -1, 0], lh: null,
+  },
+  smoke: {
+    a: [92, 118, 98],
+    parts: { body: [[-2, 0, -3, 2, 13, 3, 'a'], [-3, 0, -2, 3, 13, 2, 'a'], [-3, 8, -2, 3, 10, 2, 'y'], [-1, 13, -1, 1, 14, 1, 'M']], lever: [[2, 3, -1, 4, 13, 1, 'M']], pin: [[-1, 14, -1, 1, 16, 1, 'M']] },
+    pivots: { lever: [3, 13, 0], pin: [0, 15, 0] },
+    muzzle: [0, 0, 0], rh: [0, -1, 0], lh: null,
+  },
+  molotov: {
+    a: [96, 62, 30],
+    parts: { body: [[-3, 0, -2, 3, 9, 2, 'a'], [-2, 0, -3, 2, 9, 3, 'a'], [-2, 9, -1, 2, 12, 1, 'a'], [-1, 12, -1, 1, 17, 1, 'a'], [-2, 3, -3, 2, 6, -2, 'y'], [-1, 17, -1, 1, 20, 1, 'B'], [0, 19, 0, 1, 22, 1, 'r']], lever: [], pin: [] },
+    pivots: {},
+    muzzle: [0, 0, 0], rh: [0, -1, 0], lh: null,
+  },
   // ---- ножове ----
   bayonet: {
     a: [200, 206, 214], knife: true,
@@ -160,6 +178,12 @@ function fillPart(boxes, sphere) {
   if (sphere) { const r = sphere.r, R = Math.ceil(r); for (let x = -R; x <= R; x++) for (let y = -R; y <= R; y++) for (let z = -R; z <= R; z++) if (x * x + y * y + z * z <= r * r) m.set(key3(x, y, z), sphere.key); }
   return m;
 }
+// под-воксели: всеки воксел се разделя на sub^3 по-малки (за 5 мм детайл на моделите в ръка)
+function subdivide(m, sub) {
+  const out = new Map();
+  for (const [k, c] of m) { const [x, y, z] = unkey(k); for (let i = 0; i < sub; i++) for (let j = 0; j < sub; j++) for (let l = 0; l < sub; l++) out.set(key3(x * sub + i, y * sub + j, z * sub + l), c); }
+  return out;
+}
 function coarsen(m, step) {
   if (step === 1) return m;
   const cnt = new Map();
@@ -174,7 +198,7 @@ function partGeometry(bpId, partName, skinId, step, team) {
   const ck = `${bpId}/${partName}/${skinId}/${step}/${team}`;
   let g = geoCache.get(ck); if (g) return g;
   const bp = BP[bpId], boxes = bp.parts[partName].concat(bp.extra?.[partName] || []);
-  const vox = coarsen(fillPart(boxes, partName === 'body' ? bp.sphere : null), step);
+  const raw = fillPart(boxes, partName === 'body' ? bp.sphere : null), vox = step < 1 ? subdivide(raw, Math.round(1 / step)) : coarsen(raw, step);
   const pivot = bp.pivots?.[partName] || [0, 0, 0], skin = SKINS[skinId] || SKINS.default;
   const base = bp.a || [120, 120, 130];
   const pos = [], col = [], idx = [];
@@ -187,7 +211,7 @@ function partGeometry(bpId, partName, skinId, step, team) {
     else if (c === 'w' && skinId !== 'default' && !bp.knife) rgb = skin.fn(wx, wy, wz, PAL.w);
     else if (c === 't') rgb = sleeve;
     else rgb = PAL[c] || [128, 128, 128];
-    const nz = 0.93 + hash3(wx, wy, wz) * 0.14;
+    const nz = 0.93 + hash3(x, y, z) * 0.14;
     for (const f of FACES) {
       const nk = key3(x + f.n[0], y + f.n[1], z + f.n[2]);
       if (vox.has(nk)) continue;

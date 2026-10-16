@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="bg"><head><meta charset="utf-8"><title>Тест на анимации</title>
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+<style>body{margin:0;background:#2b303a;color:#fff;font:12px sans-serif} canvas{display:block}</style></head>
+<body><canvas id="c"></canvas>
+<script type="module">
+// Помощна страница за разработка: контактен лист с кадри от анимация на оръжие (без сървър).
+//   /vmtest.html?w=rifle&t=draw&n=8&d=0.5   (t: draw | reload | inspect | knife)
+import * as THREE from 'three';
+import { ViewModel } from '/viewmodel.js';
+const q = new URLSearchParams(location.search), w = q.get('w') || 'rifle', type = q.get('t') || 'draw', n = +(q.get('n') || 8), team = q.get('team') || 'att', skin = q.get('skin') || 'default';
+const skinList = (q.get('skins') || '').split(',').filter(Boolean), N = skinList.length || n;
+const cols = Math.min(N, 4), rows = Math.ceil(N / cols), CW = 300, CH = 240;
+const cv = document.getElementById('c'); cv.width = cols * CW; cv.height = rows * CH;
+const r = new THREE.WebGLRenderer({ canvas: cv, antialias: false }); r.setSize(cols * CW, rows * CH, false); r.setScissorTest(true); r.autoClear = false;
+const vm = new ViewModel(r); const now = Date.now(); vm.resize(CW / CH);
+const cos = { knife: w, skins: { [w]: skin } };
+const knife = ['bayonet', 'karambit', 'butterfly', 'hunting', 'falchion'].includes(w);
+vm.setWeapon(knife ? 'knife' : w, knife ? { knife: w, skins: {} } : cos, team, now);
+vm.camera.position.set(+(q.get('cx') || 0.1), +(q.get('cy') || 0.05), +(q.get('cz') || 0.2)); vm.camera.fov = +(q.get('fov') || 62); vm.camera.updateProjectionMatrix(); if (q.get('look')) vm.camera.lookAt(0.12, -0.18, -0.45);
+const D = vm.start ? 0 : 0;
+const dur = +(q.get('d') || 0) || { draw: 0.5, reload: 2.3, inspect: 3.4, knife: 0.6 }[type];
+const ctx2 = document.createElement('canvas'); ctx2.width = cols * CW; ctx2.height = rows * CH;
+for (let i = 0; i < N; i++) {
+  if (skinList.length) { vm.setWeapon(knife ? 'knife' : w, knife ? { knife: w, skins: { ['knife_' + w]: skinList[i] } } : { knife: 'bayonet', skins: { [w]: skinList[i] } }, team, now); }
+  const u = skinList.length ? +(q.get('u') || 0.95) : n === 1 ? 0.5 : i / (n - 1) * 0.98, col = i % cols, row = Math.floor(i / cols);
+  vm.anim = { type, t0: now - u * dur * 1000, d: dur * 1000, k: q.get('k') || 'l' };
+  vm.update(0.016, now, { speed: 0, onGround: true, crouchAmt: 0, mdx: 0, mdy: 0 });
+  const x = col * CW, y = (rows - 1 - row) * CH;
+  if (q.get('look')) vm.camera.lookAt(0.12, -0.18, -0.45); r.setViewport(x, y, CW, CH); r.setScissor(x, y, CW, CH); r.setClearColor(0x4a5160, 1); r.clear(); vm.camera.aspect = CW / CH; vm.camera.updateProjectionMatrix();
+  r.render(vm.scene, vm.camera);
+}
+document.title = 'ok';
+</script></body></html>

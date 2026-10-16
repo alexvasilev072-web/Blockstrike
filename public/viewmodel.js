@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
+const UPPER_GEO = new THREE.BoxGeometry(1, 1, 1);
+const _ua = new THREE.Vector3(), _ub = new THREE.Vector3();
 const clamp01 = v => Math.max(0, Math.min(1, v));
 const ease = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
 const seg = (u, a, b) => ease((u - a) / (b - a));              // 0..1 в интервала [a,b]
@@ -20,11 +22,12 @@ const BASE = {
   pistol: { pos: [0.12, -0.15, -0.34], rot: [0.02, 0.0, 0] }, deagle: { pos: [0.13, -0.19, -0.42], rot: [0.02, 0, 0] },
   smg: { pos: [0.14, -0.17, -0.45], rot: [0.0, 0.03, 0] }, rifle: { pos: [0.15, -0.19, -0.5], rot: [0.0, 0.04, 0] },
   shotgun: { pos: [0.15, -0.18, -0.5], rot: [0.0, 0.04, 0] }, sniper: { pos: [0.15, -0.19, -0.5], rot: [0.0, 0.04, 0] },
-  grenade: { pos: [0.16, -0.2, -0.38], rot: [0, 0, 0] },
+  grenade: { pos: [0.16, -0.2, -0.38], rot: [0, 0, 0] }, flash: { pos: [0.16, -0.2, -0.38], rot: [0, 0, 0] }, smoke: { pos: [0.16, -0.2, -0.38], rot: [0, 0, 0] }, molotov: { pos: [0.16, -0.2, -0.38], rot: [0, 0, 0] },
   bayonet: { pos: [0.2, -0.22, -0.46], rot: [-0.45, 0.3, -1.0] }, karambit: { pos: [0.2, -0.2, -0.44], rot: [-0.25, 0.2, -0.9] }, butterfly: { pos: [0.2, -0.22, -0.46], rot: [-0.45, 0.3, -1.0] },
   hunting: { pos: [0.2, -0.22, -0.46], rot: [-0.45, 0.3, -1.0] }, falchion: { pos: [0.22, -0.23, -0.5], rot: [-0.5, 0.3, -1.1] },
 };
-const kindOf = id => (BP[id]?.knife ? 'knife' : id === 'deagle' ? 'pistol' : id);
+const NADES = ['grenade', 'flash', 'smoke', 'molotov'];
+const kindOf = id => (BP[id]?.knife ? 'knife' : id === 'deagle' ? 'pistol' : NADES.includes(id) ? 'grenade' : id);
 
 // ---------- вадене ----------
 const DRAW = {
@@ -162,6 +165,43 @@ const KNIFE_ATK = {
   },
 };
 
+
+// ---------- реалистични вадене и оглеждане на огнестрелните оръжия (замества простите версии горе) ----------
+const eo = t => 1 - Math.pow(1 - clamp01(t), 3);                                  // забавяне в края (ease-out)
+const settle = (u, a, b) => { const t = clamp01((u - a) / (b - a)); return Math.sin(t * Math.PI) * (1 - t) * 0.6; };       // малък „припляскващ“ преход
+// Вадене: оръжието идва отдолу вдясно, цевта е наклонена надолу-навън, изправя се бързо и се „установява“ с лек отскок.
+function drawGun(u, p, o = {}) {
+  const e = eo(u / 0.78), s = settle(u, 0.55, 1);
+  p.pos[0] = lerp(o.x ?? 0.06, 0, e); p.pos[1] = lerp(o.y ?? -0.27, 0, e) - 0.012 * s; p.pos[2] = lerp(o.z ?? 0.09, 0, e) + 0.01 * s;
+  p.rot[0] = lerp(o.rx ?? -0.62, 0, e) + 0.05 * s; p.rot[1] = lerp(o.ry ?? 0.38, 0, e); p.rot[2] = lerp(o.rz ?? -0.22, 0, e);
+  p.lh[2] = (o.lz ?? 0.12) * (1 - eo(u / 0.7)); p.lh[1] = -0.04 * (1 - eo(u / 0.7));
+}
+DRAW.default = (u, p) => drawGun(u, p);
+DRAW.pistol = (u, p) => drawGun(u, p, { y: -0.22, rx: -0.5, ry: 0.3, rz: -0.18, lz: 0.05 });
+DRAW.rifle = (u, p) => drawGun(u, p, { ry: 0.42, lz: 0.16 });
+DRAW.smg = (u, p) => drawGun(u, p, { y: -0.24, lz: 0.1 });
+DRAW.shotgun = (u, p) => { drawGun(u, p, { ry: 0.4, lz: 0.2 }); p.part('pump').pos[2] = 0.1 * bump(u, 0.55, 0.65, 0.68, 0.85); p.lh[2] += 0.1 * bump(u, 0.52, 0.64, 0.68, 0.85); };
+DRAW.sniper = (u, p) => { drawGun(u, p, { ry: 0.46, rz: -0.3, lz: 0.2 }); p.part('bolt').rot[2] = -1.0 * bump(u, 0.55, 0.64, 0.7, 0.78); p.part('bolt').pos[2] = 0.08 * bump(u, 0.6, 0.68, 0.72, 0.84); };
+DRAW.grenade = (u, p) => drawGun(u, p, { x: 0.02, y: -0.2, z: 0.05, rx: -0.4, ry: 0.15, rz: -0.1, lz: 0 });
+DRAW.deagle = DRAW.pistol;
+
+// Оглеждане: оръжието се доближава, завърта се да се види лявата страна, ръката/частите правят проверка и се връща. Без обороти на 360°.
+function inspectGun(u, p, o) {
+  const come = bump(u, 0.04, 0.2, 0.86, 1), turn = bump(u, 0.16, 0.38, 0.58, 0.8), tilt = bump(u, 0.3, 0.46, 0.55, 0.72);
+  p.pos[0] = -0.07 * come - (o.sx ?? 0.03) * turn; p.pos[1] = 0.04 * come; p.pos[2] = 0.05 * come;
+  p.rot[1] = -(o.yaw ?? 0.95) * turn; p.rot[2] = (o.roll ?? 0.28) * turn + (o.tilt ?? 0.18) * tilt; p.rot[0] = (o.pitch ?? 0.1) * turn - 0.12 * tilt;
+  p.lh[2] = (o.lh ?? 0.08) * come; p.lh[0] = 0.02 * turn;
+}
+INSPECT.pistol = { d: 3.0, fn(u, p) { inspectGun(u, p, { yaw: 0.8, roll: 0.35, tilt: 0.1 }); p.part('slide').pos[2] = 0.03 * bump(u, 0.46, 0.5, 0.52, 0.58); } };
+INSPECT.deagle = { d: 3.2, fn(u, p) { inspectGun(u, p, { yaw: 0.75, roll: 0.3, tilt: 0.12 }); p.part('slide').pos[2] = 0.035 * bump(u, 0.46, 0.5, 0.52, 0.58); } };
+INSPECT.smg = { d: 3.2, fn(u, p) { inspectGun(u, p, { yaw: 0.95 }); p.part('bolt').pos[2] = 0.06 * bump(u, 0.44, 0.5, 0.52, 0.58); p.part('mag').pos[1] = -0.025 * bump(u, 0.62, 0.68, 0.72, 0.78); } };
+INSPECT.rifle = { d: 3.4, fn(u, p) { inspectGun(u, p, { yaw: 1.0, roll: 0.3, lh: 0.1 }); p.part('bolt').pos[2] = 0.07 * bump(u, 0.44, 0.5, 0.52, 0.58); p.part('mag').pos[1] = -0.03 * bump(u, 0.62, 0.68, 0.72, 0.78); } };
+INSPECT.shotgun = { d: 3.2, fn(u, p) { inspectGun(u, p, { yaw: 0.85 }); p.part('pump').pos[2] = 0.13 * (bump(u, 0.42, 0.47, 0.5, 0.55) + bump(u, 0.58, 0.63, 0.66, 0.72)); } };
+INSPECT.sniper = { d: 3.8, fn(u, p) { inspectGun(u, p, { yaw: 1.05, roll: 0.35, lh: 0.12 }); p.part('bolt').rot[2] = -1.0 * bump(u, 0.42, 0.47, 0.57, 0.62); p.part('bolt').pos[2] = 0.09 * bump(u, 0.47, 0.52, 0.56, 0.6); } };
+INSPECT.grenade = { d: 2.4, fn(u, p) {
+  const come = bump(u, 0.05, 0.22, 0.8, 1); p.pos[2] = 0.05 * come; p.pos[1] = 0.03 * come; p.rot[1] = -0.9 * bump(u, 0.15, 0.4, 0.55, 0.78); p.rot[2] = 0.3 * bump(u, 0.2, 0.4, 0.55, 0.75);
+  p.part('lever').rot[2] = 0.7 * bump(u, 0.3, 0.38, 0.5, 0.56); p.part('pin').pos[1] = 0.05 * bump(u, 0.4, 0.5, 0.52, 0.6); } };
+
 export class ViewModel {
   constructor(renderer) {
     this.scene = new THREE.Scene();
@@ -181,9 +221,9 @@ export class ViewModel {
     this.weapon = weapon;
     if (this.id === id && this.skin === skin && this.team === team) { this.anim = null; this.start('draw', now); return; }
     this.id = id; this.skin = skin; this.team = team;
-    this.spinner.clear();
+    this.spinner.clear(); (this.upper || []).forEach(m => m && this.scene.remove(m));
     const bp = BP[id];
-    this.model = buildModel(id, { skin, team });
+    this.model = buildModel(id, { skin, team, step: BP[id].knife ? 1 : 0.5 });
     const piv = bp.ringPivot || bp.spinPivot || [0, 0, 0];
     this.spinner.position.set(piv[0] * VS, piv[1] * VS, piv[2] * VS); this.model.position.set(-piv[0] * VS, -piv[1] * VS, -piv[2] * VS);
     this.spinner.add(this.model);
@@ -193,8 +233,9 @@ export class ViewModel {
     };
     this.armR = mk(bp.rh, [0.28, -0.42, 1]);
     this.armL = bp.lh ? mk(bp.lh, [-0.55, -0.5, 1]) : null;
+    this.upper = [this.armR, this.armL].map((a, i) => { if (!a) return null; const m = new THREE.Mesh(UPPER_GEO, new THREE.MeshBasicMaterial({ color: team === 'def' ? 0x2f5cbe : 0xd67622 })); m.userData.anchor = i === 0 ? [0.34, -0.62, 0.3] : [-0.34, -0.62, 0.3]; this.scene.add(m); return m; });
     this.flash = null;
-    if (bp.muzzle && !bp.knife && id !== 'grenade') { this.flash = buildModel('flash'); this.flash.position.set(bp.muzzle[0] * VS, bp.muzzle[1] * VS, bp.muzzle[2] * VS); this.flash.visible = false; this.model.add(this.flash); }
+    if (bp.muzzle && !bp.knife && !NADES.includes(id)) { this.flash = buildModel('flash'); this.flash.position.set(bp.muzzle[0] * VS, bp.muzzle[1] * VS, bp.muzzle[2] * VS); this.flash.visible = false; this.model.add(this.flash); }
     this.start('draw', now);
   }
 
@@ -207,7 +248,7 @@ export class ViewModel {
     else if (type === 'knife') d = KNIFE_ATK[this.id]?.[extra.k]?.d || 0.5;
     this.anim = { type, t0: now, d: d * 1000, ...extra };
   }
-  reload(t, now) { if (this.id === 'grenade' || BP[this.id]?.knife) return; this.start('reload', now, { t }); }
+  reload(t, now) { if (NADES.includes(this.id) || BP[this.id]?.knife) return; this.start('reload', now, { t }); }
   inspect(now) { if (!this.anim || this.anim.type === 'inspect') { if (this.anim?.type === 'inspect') { this.anim = null; return; } this.start('inspect', now); } }
   attack(k, now) { if (BP[this.id]?.knife) this.start('knife', now, { k }); }
   cancelInspect() { if (this.anim?.type === 'inspect') this.anim = null; }
@@ -282,6 +323,13 @@ export class ViewModel {
     if (this.flash) this.flash.visible = now < this.flashUntil;
     this.holder.scale.setScalar(BP[this.id].knife ? 1.3 : 1);
     this.holder.visible = this.visible;
+    // горна част на ръката: от края на предмишницата до рамото (долу в ъгъла на екрана); следва оръжието при всяко завъртане
+    this.holder.updateMatrixWorld(true);
+    (this.upper || []).forEach((m, i) => {
+      if (!m) return; const a = i === 0 ? this.armR : this.armL, an = m.userData.anchor;
+      _ua.set(0, 0, 0.395).applyMatrix4(a.matrixWorld); _ub.set(an[0], an[1], an[2]);
+      const len = _ua.distanceTo(_ub); m.position.copy(_ua).add(_ub).multiplyScalar(0.5); m.lookAt(_ub); m.scale.set(0.068, 0.068, len); m.visible = this.visible;
+    });
   }
 
   render(renderer) {

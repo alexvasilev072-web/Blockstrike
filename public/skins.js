@@ -32,7 +32,7 @@ export function initSkins({ onChange }) {
     if (!renderer) return;
     if (model) scene.remove(model);
     model = new THREE.Group();
-    const m = buildModel(modelId(), { skin: cos.skins[skinKey()] || 'default', step: 1, team: 'att' });
+    const m = buildModel(modelId(), { skin: cos.skins[skinKey()] || 'default', step: BP[modelId()]?.knife ? 1 : 0.5, team: 'att' });
     // центриране по размерите на модела
     const box = new THREE.Box3().setFromObject(m), c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
     m.position.sub(c); model.add(m); model.userData.size = Math.max(size.x, size.y, size.z) || 0.5;

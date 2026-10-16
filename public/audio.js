@@ -211,6 +211,15 @@ export const audio = {
     tone(o, { f: 70, f2: 22, dur: big ? 2.0 : 1.0, type: 'sine', vol: 1.0 }); noise(o, { dur: 0.1, type: 'highpass', f: 1500, vol: 0.5 });
     noise(o, { dur: big ? 1.6 : 0.8, type: 'lowpass', f: 300, vol: 0.4, delay: 0.25 });
   },
+  // flashbang: силен пукот + звънтене в ушите (само за заслепения играч)
+  flashBang(pos) { if (!ensure()) return; if (playFile('flash_explode', pos, 1.6)) return; const o = out(pos, 1.6); noise(o, { dur: 0.32, type: 'highpass', f: 1500, vol: 0.9 }); tone(o, { f: 3600, f2: 2400, dur: 0.18, type: 'square', vol: 0.3 }); noise(o, { dur: 0.7, type: 'lowpass', f: 900, vol: 0.35 }); },
+  flashed(d, a = 1) {
+    if (!ensure()) return; const t = ctx.currentTime;
+    if (master) { master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(volume * 0.18, t, 0.02); master.gain.setTargetAtTime(volume, t + d * 0.75, d * 0.2 + 0.05); }
+    const o = out(null, 0.5 * a); tone(o, { f: 4200, dur: Math.max(0.6, d), type: 'sine', vol: 0.12 * a }); tone(o, { f: 6100, dur: Math.max(0.4, d * 0.7), type: 'sine', vol: 0.05 * a });
+  },
+  smokePop(pos) { if (!ensure()) return; if (playFile('smoke_pop', pos, 1.2)) return; const o = out(pos, 1.2); noise(o, { dur: 0.5, type: 'lowpass', f: 700, vol: 0.4 }); noise(o, { dur: 1.6, type: 'highpass', f: 2500, vol: 0.1 }); tone(o, { f: 160, f2: 60, dur: 0.3, type: 'sine', vol: 0.3 }); },
+  molotov(pos) { if (!ensure()) return; if (playFile('molotov_explode', pos, 1.3)) return; const o = out(pos, 1.3); noise(o, { dur: 0.25, type: 'highpass', f: 3000, vol: 0.5 }); noise(o, { dur: 0.9, type: 'bandpass', f: 500, f2: 1600, q: 1, vol: 0.45 }); for (let i = 0; i < 6; i++) click(o, 1800 + i * 300, 0.12, 0.25 + i * 0.12); },
   nadeThrow(pos) { if (!ensure()) return; if (playFile('grenade_throw', pos, 0.8)) return; const o = out(pos, 0.8); noise(o, { dur: 0.2, type: 'bandpass', f: 600, f2: 1800, q: 1, vol: 0.25 }); click(o, 900, 0.2, 0.18); },
   beep(pos, vol = 1, hi = false) { if (!ensure()) return; if (playFile('bomb_beep', pos, 1.3 * vol, hi ? 1.25 : 1)) return; const o = out(pos, 1.3 * vol); tone(o, { f: hi ? 1700 : 1350, dur: 0.1, type: 'square', vol: 0.3 }); tone(o, { f: hi ? 3400 : 2700, dur: 0.05, type: 'sine', vol: 0.08 }); },
   plantTick(pos) { if (!ensure()) return; if (playFile('bomb_plant', pos, 0.9)) return; const o = out(pos, 1.0); tone(o, { f: 1900, dur: 0.035, type: 'square', vol: 0.22 }); tone(o, { f: 2500, dur: 0.035, type: 'square', vol: 0.18, delay: 0.05 }); },

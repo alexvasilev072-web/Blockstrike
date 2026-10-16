@@ -9,6 +9,9 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<div id="flashfx"></div>
+<div id="smokefx"></div>
+<div id="vignette"></div>
 
 <!-- Главно меню (върху анимиран 3D фон) -->
 <div id="join" class="screen">
@@ -85,6 +88,7 @@
       </div>
       <h4>Графика</h4>
       <label>Качество <select id="setQuality"><option value="low">Ниско</option><option value="medium">Средно</option><option value="high">Високо</option></select></label>
+      <label class="chk"><input id="setReal" type="checkbox"> Реалистична графика (сенки, небе, меки текстури)</label>
       <label class="chk"><input id="setFps" type="checkbox"> Показвай FPS</label>
       <div class="row"><button class="fsbtn">Цял екран</button><button id="setReset">Нулирай настройките</button></div>
       <div class="kbdmsg"></div>
@@ -100,7 +104,7 @@
       <div id="heroList"></div>
       <div class="skinside">
         <canvas id="heroPreview" width="420" height="420"></canvas>
-        <div id="heroTeam" class="row"><span class="sub" style="margin:0">Цветове на отбор:</span><button data-t="att">Нападатели</button><button data-t="def">Защитници</button></div>
+        <div id="heroTeam" class="row"><span class="sub" style="margin:0">Отбор:</span><button data-t="att">Нападатели</button><button data-t="def">Защитници</button></div>
       </div>
     </div>
     <p class="sub">Героят е само външен вид – хитбоксът е един и същ за всички. Другите играчи те виждат с избрания герой.</p>

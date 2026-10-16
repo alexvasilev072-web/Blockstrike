@@ -325,7 +325,9 @@ export const BLOCK_TILES = {
 for (const d of ['e', 'w', 's', 'n']) { BLOCK_TILES['ramp_' + d] = T('ramp'); BLOCK_TILES['surf_lo_' + d] = T('surf'); BLOCK_TILES['surf_hi_' + d] = T('surf'); }
 
 // ---------- атлас ----------
+const NO_POST = new Set(['water', 'glass', 'lamp', 'torch', 'checkpoint', 'finish', 'lava', 'startpad']);
 let cache = null;
+export function setAtlasFilter(THREE, tex, realistic) { tex.magFilter = realistic ? THREE.LinearFilter : THREE.NearestFilter; tex.needsUpdate = true; }
 export function buildAtlas(THREE) {
   if (cache) return cache;
   const names = TILE_NAMES, rows = Math.ceil(names.length / COLS);
@@ -339,6 +341,7 @@ export function buildAtlas(THREE) {
     let sr = 0, sg = 0, sb = 0;
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const c = TILES[nm](x, y), o = (y * S + x) * 4;
+      if (!NO_POST.has(nm) && c[3] === undefined) { const e = Math.min(x, y, S - 1 - x, S - 1 - y), bev = e < 2 ? 0.8 + 0.1 * e : 1, gr = 0.95 + hash(x, y, 901) * 0.1, wea = 0.93 + fbm(x, y, 903, 3, 3) * 0.14; const k = bev * gr * wea; c[0] = Math.min(255, c[0] * k); c[1] = Math.min(255, c[1] * k); c[2] = Math.min(255, c[2] * k); }
       d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = c[3] === undefined ? 255 : c[3];
       sr += c[0]; sg += c[1]; sb += c[2];
     }
@@ -352,7 +355,7 @@ export function buildAtlas(THREE) {
   });
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.magFilter = THREE.NearestFilter;
+  tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.NearestMipmapLinearFilter;
   tex.generateMipmaps = true;
   tex.anisotropy = 4;

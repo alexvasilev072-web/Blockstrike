@@ -147,3 +147,8 @@ button.danger { border-color: #a04444; background: #4a2020; } button.danger:hove
 
 .botdiff { margin-left: 8px; font-size: 11px; padding: 1px 6px; border: 1px solid #556; opacity: .9; } .d-easy { color: #8be28b; } .d-medium { color: #ffd34d; } .d-hard { color: #ff9a4d; } .d-expert { color: #ff5a5a; border-color: #ff5a5a; }
 .rmBot { margin-left: 6px; padding: 0 6px; font-size: 12px; } #botDiff { background: #1b2230; color: #e8edf5; border: 1px solid #46546b; padding: 6px; }
+
+#flashfx { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 8; }
+#vignette { position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse at 50% 55%, rgba(0,0,0,0) 55%, rgba(0,0,0,.42) 100%); display: none; }
+body.real #vignette { display: block; }
+#smokefx { position: fixed; inset: 0; background: #c6cacd; opacity: 0; pointer-events: none; z-index: 7; }

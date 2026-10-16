@@ -46,7 +46,10 @@ export const WEAPONS = {
   sniper:  { name: 'Снайпер AWP',  slot: 'pr', dmg: 115, ratio: 1.95, range: 0.99, rate: 1.47, mag: 10, reserve: 30,  reload: 3.7, auto: false, speed: 5.0, scoped: 2.5, price: 4750, reward: 100,
              spread: { stand: 0.0008, crouch: 0.0005, move: 0.16, air: 0.2, unscoped: 0.06 }, recoil: { up: 0.045, rise: 1, sway: 0.004, freq: 1, drift: 0 }, rreset: 1.0, pellets: 1 },
   knife:   { name: 'Нож',          slot: 'kn', speed: 6.25, reward: 1500, price: 0 },
-  grenade: { name: 'Граната',      slot: 'n',  speed: 6.1, price: 300, reward: 300 },
+  grenade: { name: 'Граната (HE)', slot: 'n',  speed: 6.1, price: 300, reward: 300 },
+  flash:   { name: 'Flashbang',    slot: 'n',  speed: 6.1, price: 200, reward: 300 },
+  smoke:   { name: 'Димна граната', slot: 'n', speed: 6.1, price: 300, reward: 300 },
+  molotov: { name: 'Молотов',      slot: 'n',  speed: 6.1, price: 400, reward: 300 },
 };
 
 // Нож: left = бърз удар, right = силен удар; back = множител при удар в гръб
@@ -56,13 +59,20 @@ export const KNIFE = {
 };
 // Герои (модели на играчите): само името; моделите са в public/characters.js
 export const CHARACTERS = {
-  astro:  { name: 'Космонавт', desc: 'Бял скафандър със златен визьор' },
-  fox:    { name: 'Лисан', desc: 'Лисица диверсант с пухкава опашка' },
-  robot:  { name: 'Андроид', desc: 'Стоманен робот със светещ визьор' },
-  alien:  { name: 'Пришълец', desc: 'Зелен пришълец с огромни очи' },
-  knight: { name: 'Рицар', desc: 'Шлем с перо и наплечници' },
-  ninja:  { name: 'Нинджа-котка', desc: 'Черен костюм, шал и светещи очи' },
+  t_ultra:    { team: 'att', name: 'Хулиган',    desc: 'Футболен хулиган: шал на лицето, пухено яке, анцуг с райета, маратонки' },
+  t_dealer:   { team: 'att', name: 'Дилър',      desc: 'Махленски тип: потник, златна верижка, шапка, маска, чантичка' },
+  t_enforcer: { team: 'att', name: 'Изпълнител', desc: 'Балаклава, суитшърт с качулка, къси гащи, маратонки' },
+  ct_gdbop:   { team: 'def', name: 'ГДБОП',      desc: 'Каска, маска, тактическа жилетка с надпис ГДБОП' },
+  ct_police:  { team: 'def', name: 'Полицай',    desc: 'Полицейска униформа, шапка, жилетка с надпис ПОЛИЦИЯ' },
+  ct_special: { team: 'def', name: 'Спецчаст',   desc: 'Каска с нощно виждане, слушалки, цялата екипировка в черно' },
 };
+export const defaultChars = () => ({ att: 't_ultra', def: 'ct_gdbop' });
+// проверка на избора на герои (по един за всеки отбор)
+export function cleanChars(c) {
+  const d = defaultChars();
+  if (c && typeof c === 'object') for (const t of ['att', 'def']) if (CHARACTERS[c[t]]?.team === t) d[t] = c[t];
+  return d;
+}
 export const KNIFE_TYPES = {
   bayonet:  { name: 'Байонет' },
   karambit: { name: 'Карамбит' },
@@ -102,8 +112,11 @@ export const ITEMS = [
   { id: 'rifle',   key: '4', label: 'Автомат АК-47',       price: 2700 },
   { id: 'sniper',  key: '5', label: 'Снайпер AWP',         price: 4750 },
   { id: 'grenade', key: '6', label: 'Граната (HE)',        price: 300 },
-  { id: 'armor',   key: '7', label: 'Броня',               price: 650 },
-  { id: 'kit',     key: '8', label: 'Defuse kit (защитници)', price: 400 },
+  { id: 'flash',   key: '7', label: 'Flashbang',           price: 200 },
+  { id: 'smoke',   key: '8', label: 'Димна граната',       price: 300 },
+  { id: 'molotov', key: '9', label: 'Молотов (защитници $600)', price: 400 },
+  { id: 'armor',   key: '0', label: 'Броня',               price: 650 },
+  { id: 'kit',     key: '-', label: 'Defuse kit (защитници)', price: 400 },
 ];
 
 export const CFG = {
@@ -116,6 +129,9 @@ export const CFG = {
   WIN_REWARD: 3250, LOSE_REWARD: 1400, STREAK_BONUS: 500, PLANT_BONUS: 300, DEFUSE_BONUS: 300, PLANTED_LOSS_BONUS: 800,
   ARMOR: 100,
   NADE_RADIUS: 8, NADE_DMG: 98, NADE_BREAK: 3.6, NADE_FUSE: 1.8,
+  MAX_NADES: 4, MAX_FLASH: 2, FLASH_FUSE: 1.6, FLASH_R: 30,                     // flashbang: най-много 4 гранати общо, до 2 флашки
+  SMOKE_FUSE: 2.4, SMOKE_R: 3.6, SMOKE_TIME: 18,                                // димна: пуфка при спиране (до 2.4 с), облак 3.6 м за 18 с
+  MOLO_FUSE: 2.2, MOLO_R: 3.0, MOLO_TIME: 7, MOLO_DPS: 14,                     // молотов: пожар при удар в земята, 7 с, 14 щети/с
   MAX_PLAYERS: 10,
   BOMB_PICKUP: 1.3,
   SWITCH_DELAY: 450, BUY_DELAY: 400,          // мс: след смяна на оръжие / купуване не може да се стреля (и на клиента, и на сървъра)
@@ -129,3 +145,10 @@ export function inBuyZone(spawns, x, z, pad = CFG.BUY_PAD) {
   for (const [sx, sz] of spawns) { x1 = Math.min(x1, sx); z1 = Math.min(z1, sz); x2 = Math.max(x2, sx + 1); z2 = Math.max(z2, sz + 1); }
   return x >= x1 - pad && x <= x2 + pad && z >= z1 - pad && z <= z2 + pad;
 }
+
+// Гранати: оръжие -> ключ в p.inv.g; ред на превключване с клавиш 4
+export const NADE = { grenade: 'he', flash: 'flash', smoke: 'smoke', molotov: 'molo' };
+export const NADE_W = { he: 'grenade', flash: 'flash', smoke: 'smoke', molo: 'molotov' };
+export const NADE_ORDER = ['he', 'flash', 'smoke', 'molo'];
+export const NADE_IDS = ['grenade', 'flash', 'smoke', 'molotov'];
+export const nadePrice = (id, team) => (id === 'molotov' ? (team === 'def' ? 600 : 400) : WEAPONS[id]?.price);

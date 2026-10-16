@@ -1,33 +1,35 @@
-// Меню „Герои“: избор на модела, с който играеш, с въртящ се 3D преглед. Изборът се пази в localStorage и другите го виждат.
+// Меню „Герои“: избор на модела, с който играеш (по един герой за всеки отбор), с въртящ се 3D преглед.
+// Изборът се пази в localStorage и другите играчи го виждат.
 import * as THREE from 'three';
-import { buildCharacter, CHAR_LIST, armGeoFor, handGeoFor } from './characters.js';
+import { buildCharacter, makeArm, heroesFor, defaultChar } from './characters.js';
+import { cleanChars } from '/shared/weapons.js';
 
 const $ = s => document.querySelector(s);
-export function loadChar() { try { const c = localStorage.getItem('bs_char'); return CHAR_LIST.some(x => x.id === c) ? c : 'astro'; } catch { return 'astro'; } }
+export function loadChar() { try { return cleanChars(JSON.parse(localStorage.getItem('bs_chars') || '{}')); } catch { return cleanChars(); } }
 
 export function initHeroes({ onChange }) {
-  let cur = loadChar(), team = 'att', renderer = null, scene, camera, model = null, raf = 0, open = false, t0 = 0, tick = null;
-  const save = () => { try { localStorage.setItem('bs_char', cur); } catch { } onChange?.(cur); };
+  let cur = loadChar(), team = 'att', renderer = null, scene, camera, model = null, raf = 0, open = false, t0 = 0;
+  const save = () => { try { localStorage.setItem('bs_chars', JSON.stringify(cur)); } catch { } onChange?.(cur); };
   function renderList() {
-    $('#heroList').innerHTML = CHAR_LIST.map(c => `<button data-c="${c.id}" class="${c.id === cur ? 'on' : ''}"><b>${c.name}</b><span>${c.desc}</span></button>`).join('');
-    $('#heroList').querySelectorAll('button').forEach(b => b.onclick = () => { cur = b.dataset.c; save(); renderList(); buildPreview(); });
+    $('#heroList').innerHTML = heroesFor(team).map(c => `<button data-c="${c.id}" class="${c.id === cur[team] ? 'on' : ''}"><b>${c.name}</b><span>${c.desc}</span></button>`).join('');
+    $('#heroList').querySelectorAll('button').forEach(b => b.onclick = () => { cur[team] = b.dataset.c; save(); renderList(); buildPreview(); });
     document.querySelectorAll('#heroTeam button').forEach(b => b.classList.toggle('on', b.dataset.t === team));
   }
   function buildPreview() {
     if (!renderer) return;
     if (model) scene.remove(model);
-    const c = buildCharacter(cur, team); tick = c.tick;
+    const c = buildCharacter(cur[team], team);
     model = new THREE.Group(); const g = new THREE.Group(); g.add(c.head, c.body, c.legL, c.legR);
-    const thin = !!c.thin, mA = new THREE.MeshBasicMaterial({ color: c.armHex, vertexColors: true }), mH = new THREE.MeshBasicMaterial({ color: c.handHex });
-    for (const s of [-1, 1]) {            // ръце надолу край тялото (в менюто няма оръжие)
-      const arm = new THREE.Mesh(armGeoFor(thin), mA); arm.position.set(0.3 * s, 1.28, 0); arm.rotation.x = -1.5; arm.scale.z = 0.6; g.add(arm);
-      const h = new THREE.Mesh(handGeoFor(thin), mH); h.position.set(0.31 * s, 0.76, -0.04); g.add(h);
+    for (const s of [-1, 1]) {            // ръце свободно надолу (в менюто няма оръжие)
+      const arm = makeArm(c), from = new THREE.Vector3(s * c.sh.x, c.sh.y, 0), to = new THREE.Vector3(s * (c.sh.x + 0.04), 0.88, -0.1);
+      arm.set(from, to, s); g.add(arm.g);
+      const h = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 8), new THREE.MeshBasicMaterial({ color: c.handHex })); h.position.copy(to); g.add(h);
     }
     g.position.y = -0.9; model.add(g); scene.add(model);
   }
   function loop(t) {
     if (!open) return; raf = requestAnimationFrame(loop);
-    if (model) { model.rotation.y = (t - t0) / 1500; tick?.((t - t0) / 1000, 3); }
+    if (model) model.rotation.y = (t - t0) / 1800 + Math.PI;
     renderer.render(scene, camera);
   }
   function show() {
@@ -35,7 +37,7 @@ export function initHeroes({ onChange }) {
     if (!renderer) {
       renderer = new THREE.WebGLRenderer({ canvas: $('#heroPreview'), antialias: true, alpha: true });
       renderer.setSize(420, 420, false); renderer.setClearColor(0x000000, 0);
-      scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(34, 1, 0.1, 20); camera.position.set(0, 0.35, 3.6); camera.lookAt(0, 0.1, 0);
+      scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(30, 1, 0.1, 20); camera.position.set(0, 0.4, 4.4); camera.lookAt(0, 0.15, 0);
     }
     t0 = performance.now(); renderList(); buildPreview(); raf = requestAnimationFrame(loop);
   }

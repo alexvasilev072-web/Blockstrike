@@ -3,7 +3,7 @@
 // реакцията, точността, контрола на откат (counter-strafe, къси серии), тактиката и използването на гранати.
 import { BLOCK, SOLID, traverse } from '../shared/world.js';
 import { stepBody, makeBody } from '../shared/physics.js';
-import { WEAPONS, MOVE, CFG, recoilAt } from '../shared/weapons.js';
+import { WEAPONS, MOVE, CFG, recoilAt, NADE, NADE_IDS } from '../shared/weapons.js';
 
 const STEP = MOVE.STEP;
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -94,18 +94,18 @@ export class Nav {
 }
 
 // ---------- Симулация на хвърлена граната (както в server updateNades) ----------
-function simNade(world, o, yw, pt) {
+function simNade(world, o, yw, pt, kind = 'he') {
   const cp = Math.cos(pt), f = [-Math.sin(yw) * cp, Math.sin(pt), -Math.cos(yw) * cp];
   const g = { x: o[0] + f[0] * 0.5, y: o[1] + f[1] * 0.5 - 0.1, z: o[2] + f[2] * 0.5, vx: f[0] * 16, vy: f[1] * 16 + 3, vz: f[2] * 16 };
   if (world.solid(Math.floor(g.x), Math.floor(g.y), Math.floor(g.z))) return null;
-  let fuse = CFG.NADE_FUSE; const dt = 0.033;
+  let fuse = kind === 'flash' ? CFG.FLASH_FUSE : kind === 'molo' ? CFG.MOLO_FUSE : CFG.NADE_FUSE; const dt = 0.033;
   while (fuse > 0) {
-    fuse -= dt;
+    fuse -= dt; if (kind === 'molo' && g.hit) break;
     for (let s = 0; s < 3; s++) {
       const sdt = dt / 3; g.vy -= 20 * sdt;
       for (const ax of ['x', 'y', 'z']) {
         const n = g[ax] + g['v' + ax] * sdt, t = { x: g.x, y: g.y, z: g.z }; t[ax] = n;
-        if (world.solid(Math.floor(t.x), Math.floor(t.y), Math.floor(t.z))) { g['v' + ax] *= -0.42; if (ax === 'y') { g.vx *= 0.75; g.vz *= 0.75; if (Math.abs(g.vy) < 1) g.vy = 0; } } else g[ax] = n;
+        if (world.solid(Math.floor(t.x), Math.floor(t.y), Math.floor(t.z))) { if (ax === 'y' && g.vy < -0.6) g.hit = true; g['v' + ax] *= -0.42; if (ax === 'y') { g.vx *= 0.75; g.vz *= 0.75; if (Math.abs(g.vy) < 1) g.vy = 0; } } else g[ax] = n;
       }
     }
   }
@@ -139,7 +139,7 @@ export class Bot {
     const rich = p.money, pistolRound = r.round === 1 || r.round === CFG.HALF + 1, tryBuy = it => r.buy(p, it);
     let awps = 0; for (const q of r.players.values()) if (q.team === p.team && q.alive && q.inv.pr === 'sniper') awps++;
     if (pistolRound) { if (p.money >= 650 && (this.diffId === 'hard' || this.diffId === 'expert' || p.team === 'def')) tryBuy('armor'); else if (p.money >= 700) tryBuy('deagle'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }
-    if (p.inv.pr) { if (rich >= 650) tryBuy('armor'); if (d.nades && p.money >= 300) tryBuy('grenade'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }   // основното оръжие е запазено от миналия рунд
+    if (p.inv.pr) { if (rich >= 650) tryBuy('armor'); if (d.nades && p.money >= 300) tryBuy('grenade'); if (d.nades && p.money >= 200) tryBuy('flash'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }   // основното оръжие е запазено от миналия рунд
     if (rich >= 4750 + 650 && d.awp && awps < 1 && Math.random() < (this.diffId === 'expert' ? 0.5 : 0.25)) tryBuy('sniper');
     else if (rich >= 2700 + 650) tryBuy('rifle');
     else if (rich >= 2700 && Math.random() < 0.5) tryBuy('rifle');
@@ -149,12 +149,15 @@ export class Bot {
     else if (rich >= 700 + 650 && !p.inv.pr) tryBuy('deagle');
     if (p.money >= 650) tryBuy('armor');
     if (p.money >= 300 && d.nades) tryBuy('grenade');
+    if (d.nades && p.money >= 200 && Math.random() < 0.7) tryBuy('flash');
+    if (d.nades && p.money >= (p.team === 'def' ? 600 : 400) && Math.random() < 0.45) tryBuy('molotov');
     if (p.team === 'def' && p.money >= 400) tryBuy('kit');
     if (!p.inv.pr && p.money >= 700 && Math.random() < 0.5) tryBuy('deagle');
   }
 
   // ----- възприятие -----
   los(a, b) {
+    if (this.room.smokeBlocks(a, b)) return false;                  // димът спира погледа
     const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz); if (L < 0.01) return true;
     let blocked = false; const w = this.room.world;
     traverse(w, a[0], a[1], a[2], dx / L, dy / L, dz / L, L, (x, y, z, t) => {
@@ -168,6 +171,7 @@ export class Bot {
   inFov(pt) { const a = this.angTo(pt), dy = Math.abs(angNorm(a.yaw - this.p.yw)), dp = Math.abs(a.pitch - this.p.pt); return a.dist < 2.5 || (dy < this.d.fov / 2 && dp < this.d.fov / 2.4); }
   perceive(now) {
     const p = this.p, d = this.d, e0 = this.eye;
+    if (now < p.blindUntil) { for (const m of this.mem.values()) m.visible = m.wasVisible = false; this.target = null; return; }       // заслепен (flashbang)
     for (const [id, m] of this.mem) { const q = this.room.players.get(id); if (!q || !q.alive) { this.mem.delete(id); continue; } m.visible = false; }
     let best = null;
     for (const e of this.enemies()) {
@@ -313,6 +317,11 @@ export class Bot {
   decide(now) {
     const r = this.room, p = this.p, d = this.d, inp = this.input, T = this.target, m = T ? this.mem.get(T.id) : null;
     this.lookAt = null; this.aimPart = null;
+    for (const f of r.fires) {                                        // стои в пожар -> излиза от него
+      const dx = p.x - f.x, dz = p.z - f.z, dd = Math.hypot(dx, dz);
+      if (dd < f.r + 0.6 && Math.abs(p.y - f.y) < 1.6) { const l = dd || 1; inp.mx = dx / l; inp.mz = dz / l; inp.walk = false; this.look = null; if (!this.target) { this.pointAlong(); } break; }
+    }
+    if (inp.mx || inp.mz) { if (!this.target) return; }
     const w = WEAPONS[p.weapon] || WEAPONS.pistol;
     // презареждане / смяна на оръжие
     const am = p.ammo[p.weapon];
@@ -321,7 +330,7 @@ export class Bot {
       else if (am.mag === 0 && T && p.inv.se && p.weapon !== p.inv.se && p.ammo[p.inv.se]?.mag > 0 && this.dist(T) < 12) r.switchTo(p, 'se');
       else if (am.mag <= w.mag * 0.3 && !T && now - (this.lastSeen || 0) > 1500) r.reload(p);
       else if (am.mag === 0) r.reload(p);
-    } else if (p.weapon === 'knife' || p.weapon === 'grenade') { if (!this.nade) r.switchTo(p, p.inv.pr ? 'pr' : 'se'); }
+    } else if (p.weapon === 'knife' || NADE_IDS.includes(p.weapon)) { if (!this.nade) r.switchTo(p, p.inv.pr ? 'pr' : 'se'); }
     if (T) this.lastSeen = now;
     // 1) бой
     if (T && m) return this.combat(now, T, m, w);
@@ -418,26 +427,29 @@ export class Bot {
   // ----- гранати -----
   tryNade(now) {
     const p = this.p, d = this.d;
-    if (!d.nades || p.inv.n <= 0 || now - this.lastThrow < 8000) return false;
+    if (!d.nades || p.inv.n <= 0 || now - this.lastThrow < 6000) return false;
+    const kinds = Object.keys(p.inv.g).filter(k => p.inv.g[k] > 0 && k !== 'smoke'); if (!kinds.length) return false;
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
     const m = this.freshestMem(now); if (!m || now - m.seen > 3000) return false;
     const dist = Math.hypot(m.pos[0] - p.x, m.pos[2] - p.z); if (dist < 9 || dist > 24) return false;
     const e = this.eye; if (this.los(e, [m.pos[0], m.pos[1] + 1.2, m.pos[2]]) && dist < 14) return false;
     const a = this.angTo([m.pos[0], m.pos[1] + 1, m.pos[2]]); let best = null;
     for (let pt = -0.1; pt <= 1.1; pt += 0.04) {
-      const g = simNade(this.room.world, e, a.yaw, pt); if (!g) continue;
+      const g = simNade(this.room.world, e, a.yaw, pt, kind); if (!g) continue;
       const dd = Math.hypot(g.x - m.pos[0], g.z - m.pos[2]) + Math.abs(g.y - m.pos[1]) * 0.3;
       if (!best || dd < best.dd) best = { dd, pt };
     }
     if (!best || best.dd > 2.4) return false;
-    this.nade = { yaw: a.yaw, pt: best.pt, t0: now, thrown: false }; return true;
+    this.nade = { yaw: a.yaw, pt: best.pt, t0: now, thrown: false, kind }; return true;
   }
   doNade(now) {
     const p = this.p, r = this.room, n = this.nade; if (!n) return;
-    if (p.inv.n <= 0 || now - n.t0 > 3000) { this.nade = null; return; }
-    if (p.weapon !== 'grenade') { if (now - n.t0 > 200) r.switchTo(p, 'n'); }
+    const want = { he: 'grenade', flash: 'flash', molo: 'molotov', smoke: 'smoke' }[n.kind];
+    if (p.inv.g[n.kind] <= 0 || now - n.t0 > 4000) { this.nade = null; return; }
+    if (p.weapon !== want) { if (now - (this.lastSw || 0) > 350) { this.lastSw = now; r.switchTo(p, 'n'); } }
     this.lookAt = null; this.aimDir = { yaw: n.yaw, pitch: n.pt };
     const v = this.view, ok = Math.abs(angNorm(n.yaw - v.yaw)) < 0.05 && Math.abs(n.pt - v.pitch) < 0.05;
-    if (p.weapon === 'grenade' && now >= p.nextShot && ok) { r.throwNade(p, { yw: v.yaw, pt: v.pitch }); this.lastThrow = now; this.nade = null; }
+    if (p.weapon === want && now >= p.nextShot && ok) { r.throwNade(p, { yw: v.yaw, pt: v.pitch }); this.lastThrow = now; this.nade = null; }
   }
 
   // ----- цели на рунда -----

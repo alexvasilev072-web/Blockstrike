@@ -8,7 +8,7 @@ import { Server } from 'socket.io';
 import { Bot, DIFFS, BOT_NAMES } from './bots.js';
 import { Bsp, boxBlockedBsp, toCs, fromCs, U as BU } from '../shared/bsp.js';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
-import { CHARACTERS, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
+import { NADE, NADE_W, NADE_ORDER, nadePrice, CHARACTERS, cleanChars, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT || 3000;
@@ -85,7 +85,13 @@ function makeCode() {
   do { c = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join(''); } while (rooms.has(c));
   return c;
 }
-const SLOT_WEAPON = (p, slot) => (slot === 'pr' ? p.inv.pr : slot === 'se' ? p.inv.se : slot === 'kn' ? 'knife' : slot === 'n' ? (p.inv.n > 0 ? 'grenade' : null) : null);
+// клавиш 4: превключва между наличните видове гранати (HE, flash, димна, молотов)
+function nextNade(p) {
+  const have = NADE_ORDER.filter(k => p.inv.g[k] > 0).map(k => NADE_W[k]); if (!have.length) return null;
+  const i = have.indexOf(p.weapon); return have[(i + 1) % have.length];
+}
+const syncNades = p => { p.inv.n = NADE_ORDER.reduce((s, k) => s + p.inv.g[k], 0); };
+const SLOT_WEAPON = (p, slot) => (slot === 'pr' ? p.inv.pr : slot === 'se' ? p.inv.se : slot === 'kn' ? 'knife' : slot === 'n' ? nextNade(p) : null);
 
 // ---------- Стая ----------
 class Room {
@@ -105,7 +111,7 @@ class Room {
     this.changes = [];
     this.bomb = null;      // заложена бомба
     this.drop = null;      // паднала бомба {x,y,z}
-    this.nades = [];
+    this.nades = []; this.smokes = []; this.fires = [];
     this.nid = 1;
     this.started = { att: 0, def: 0 };
     this.lastTick = Date.now();
@@ -131,8 +137,8 @@ class Room {
       id: socket.id, socket, name, team: 'att', x: 0, y: 1, z: 0, yw: 0, pt: 0, cr: false, g: true, wk: false, sc: false,
       hp: 0, armor: 0, kit: false, alive: false, money: CFG.START_MONEY, kills: 0, deaths: 0, inv: null, ammo: {}, weapon: 'pistol',
       nextShot: 0, reloadEnd: 0, shotIdx: 0, lastShot: 0, using: false, useP: 0, useStart: null, useKind: null,
-      hist: [], lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
-      cos: { knife: 'bayonet', skins: {}, char: 'astro' },
+      hist: [], blindUntil: 0, lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
+      cos: { knife: 'bayonet', skins: {}, char: cleanChars() },
     };
     const cnt = { att: 0, def: 0 };
     for (const q of this.players.values()) cnt[q.team]++;
@@ -163,8 +169,8 @@ class Room {
     const sock = { id, emit() { }, join() { }, leave() { } };
     const p = this.addPlayer(sock, nm);
     p.team = team; p.diff = diff; p.bot = new Bot(this, p, diff);
-    const ids = Object.keys(CHARACTERS), kn = Object.keys(KNIFE_TYPES);
-    p.cos = { knife: kn[Math.floor(Math.random() * kn.length)], skins: {}, char: ids[Math.floor(Math.random() * ids.length)] };
+    const pick = t => { const l = Object.keys(CHARACTERS).filter(i => CHARACTERS[i].team === t); return l[Math.floor(Math.random() * l.length)]; }, kn = Object.keys(KNIFE_TYPES);
+    p.cos = { knife: kn[Math.floor(Math.random() * kn.length)], skins: {}, char: { att: pick('att'), def: pick('def') } };
     this.emit('cos', { i: p.id, cos: p.cos });
     this.emitLobby();
     return p;
@@ -183,7 +189,7 @@ class Room {
 
   // ----- екипировка -----
   resetLoadout(p) {
-    p.inv = { pr: null, se: 'pistol', n: 0, bomb: false };
+    p.inv = { pr: null, se: 'pistol', n: 0, g: { he: 0, flash: 0, smoke: 0, molo: 0 }, bomb: false }; p.blindUntil = 0;
     p.ammo = { pistol: { mag: WEAPONS.pistol.mag, res: WEAPONS.pistol.reserve } };
     p.weapon = 'pistol';
     p.armor = 0; p.kit = false;
@@ -304,7 +310,7 @@ class Room {
     this.world = this.map.world.clone();
     this.changes = [];
     this.bomb = null; this.drop = null;
-    this.nades = [];
+    this.nades = []; this.smokes = []; this.fires = [];
     const idx = { att: 0, def: 0 };
     this.started = { att: 0, def: 0 };
     for (const p of this.players.values()) {
@@ -564,7 +570,7 @@ class Room {
     if (now - p.deniedAt < 120) return;
     p.deniedAt = now;
     const am = p.ammo[p.weapon];
-    p.socket.emit('denied', { w: p.weapon, mag: p.weapon === 'grenade' ? p.inv.n : am ? am.mag : 0, res: am ? am.res : 0, wait: Math.max(0, Math.round(wait)) });
+    p.socket.emit('denied', { w: p.weapon, mag: NADE[p.weapon] ? p.inv.g[NADE[p.weapon]] : am ? am.mag : 0, res: am ? am.res : 0, wait: Math.max(0, Math.round(wait)) });
   }
 
   // ----- нож -----
@@ -624,12 +630,14 @@ class Room {
     if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
     if (!inFreeze && !inBuyZone(this.map.json.spawns[p.team], p.x, p.z)) return p.socket.emit('err', 'Можеш да купуваш само в зоната около spawn-а');
     if (item === 'pistol') return;
-    const price = item === 'armor' ? 650 : item === 'kit' ? 400 : WEAPONS[item]?.price;
+    const price = item === 'armor' ? 650 : item === 'kit' ? 400 : nadePrice(item, p.team);
     if (price === undefined || item === 'knife') return;
     if (p.money < price) return p.socket.emit('err', 'Нямаш достатъчно пари');
-    if (item === 'grenade') {
-      if (p.inv.n >= 1) return p.socket.emit('err', 'Вече имаш граната');
-      p.inv.n = 1;
+    if (NADE[item]) {
+      const k = NADE[item], lim = k === 'flash' ? CFG.MAX_FLASH : 1;
+      if (p.inv.g[k] >= lim) return p.socket.emit('err', k === 'flash' ? 'Най-много 2 flashbang-а' : 'Вече имаш такава граната');
+      if (p.inv.n >= CFG.MAX_NADES) return p.socket.emit('err', 'Носиш най-много 4 гранати');
+      p.inv.g[k]++; syncNades(p);
     } else if (item === 'armor') {
       if (p.armor >= CFG.ARMOR) return p.socket.emit('err', 'Вече имаш броня');
       p.armor = CFG.ARMOR;
@@ -647,15 +655,16 @@ class Room {
   }
 
   throwNade(p, d) {
-    if (this.run || this.phase !== 'live' || !p.alive || p.weapon !== 'grenade' || p.inv.n <= 0) return;
+    const kind = NADE[p.weapon];
+    if (this.run || this.phase !== 'live' || !p.alive || !kind || p.inv.g[kind] <= 0) return;
     if (Date.now() < p.nextShot) return;
     const f = dirFrom(num(d.yw), clamp(num(d.pt), -1.5, 1.5));
-    p.inv.n--;
+    p.inv.g[kind]--; syncNades(p);
     const eye = p.y + (p.cr ? MOVE.EYE_CROUCH : MOVE.EYE_STAND);
     this.nades.push({
-      id: this.nid++, owner: p.id, ownerTeam: p.team,
+      id: this.nid++, owner: p.id, ownerTeam: p.team, kind, hit: false,
       x: p.x + f[0] * 0.5, y: eye + f[1] * 0.5 - 0.1, z: p.z + f[2] * 0.5,
-      vx: f[0] * 16, vy: f[1] * 16 + 3, vz: f[2] * 16, fuse: CFG.NADE_FUSE,
+      vx: f[0] * 16, vy: f[1] * 16 + 3, vz: f[2] * 16, fuse: { he: CFG.NADE_FUSE, flash: CFG.FLASH_FUSE, smoke: CFG.SMOKE_FUSE, molo: CFG.MOLO_FUSE }[kind],
     });
     p.weapon = p.inv.pr || p.inv.se;
     p.nextShot = Date.now() + 500;
@@ -674,15 +683,80 @@ class Room {
           const n = g[ax] + g['v' + ax] * sdt;
           const t = { x: g.x, y: g.y, z: g.z }; t[ax] = n;
           if (this.world.solid(Math.floor(t.x), Math.floor(t.y), Math.floor(t.z))) {
+            if (ax === 'y' && g.vy < -0.6) g.hit = true;
             g['v' + ax] *= -0.42;
             if (ax === 'y') { g.vx *= 0.75; g.vz *= 0.75; if (Math.abs(g.vy) < 1) g.vy = 0; }
           } else g[ax] = n;
         }
       }
-      if (g.fuse <= 0) { this.nades.splice(i, 1); this.explodeNade(g); }
+      const spd = Math.hypot(g.vx, g.vy, g.vz);
+      if (g.fuse <= 0 || (g.kind === 'molo' && g.hit) || (g.kind === 'smoke' && g.hit && spd < 1.4)) { this.nades.splice(i, 1); this.detonate(g); }
     }
   }
 
+  detonate(g) {
+    if (g.kind === 'flash') return this.flashBang(g);
+    if (g.kind === 'smoke') return this.popSmoke(g);
+    if (g.kind === 'molo') return this.igniteMolotov(g);
+    return this.explodeNade(g);
+  }
+  // облаците дим спират погледа (не и куршумите)
+  smokeBlocks(a, b) {
+    const now = Date.now();
+    for (const s of this.smokes) {
+      if (now >= s.until || now < s.t0 + 500) continue;
+      const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L2 = dx * dx + dy * dy + dz * dz; if (L2 < 1e-6) continue;
+      const cy = s.y + 1.2; let t = ((s.x - a[0]) * dx + (cy - a[1]) * dy + (s.z - a[2]) * dz) / L2; t = Math.max(0, Math.min(1, t));
+      const px = a[0] + dx * t - s.x, py = a[1] + dy * t - cy, pz = a[2] + dz * t - s.z;
+      if (px * px + py * py + pz * pz < (s.r * 0.92) ** 2) return true;
+    }
+    return false;
+  }
+  losClear(a, b) {   // дали между две точки няма твърд блок (стъклото е прозрачно)
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz); if (L < 0.01) return true;
+    let blocked = false;
+    traverse(this.world, a[0], a[1], a[2], dx / L, dy / L, dz / L, L, (x, y, z, t) => { if (t >= L) return true; const bl = this.world.get(x, y, z); if (SOLID[bl] && bl !== BLOCK.glass) { blocked = true; return true; } return false; });
+    return !blocked;
+  }
+  flashBang(g) {
+    this.emit('boom', { x: g.x, y: g.y, z: g.z, r: 0, kind: 'flash' });
+    const now = Date.now(), o = [g.x, g.y, g.z];
+    for (const p of this.players.values()) {
+      if (!p.alive) continue;
+      const eye = [p.x, p.y + (p.cr ? MOVE.EYE_CROUCH : MOVE.EYE_STAND), p.z], dx = o[0] - eye[0], dy = o[1] - eye[1], dz = o[2] - eye[2], dist = Math.hypot(dx, dy, dz);
+      if (dist > CFG.FLASH_R || !this.losClear(eye, o) || this.smokeBlocks(eye, o)) continue;
+      const f = dirFrom(p.yw, p.pt), dot = dist > 0.01 ? (f[0] * dx + f[1] * dy + f[2] * dz) / dist : 1;
+      const fac = Math.max(0.12, Math.min(1, (dot + 0.45) / 1.0)), dur = Math.max(0.6, 5.0 * (1 - dist / CFG.FLASH_R)) * fac * (dist < 1.5 ? 1.2 : 1);
+      p.blindUntil = Math.max(p.blindUntil, now + dur * 1000 * TS);
+      p.socket.emit('flashed', { d: Math.round(dur * 100) / 100, a: Math.round(fac * 100) / 100 });
+    }
+  }
+  popSmoke(g) {
+    const now = Date.now(), s = { id: g.id, x: g.x, y: g.y, z: g.z, r: CFG.SMOKE_R, t0: now, until: now + CFG.SMOKE_TIME * 1000 * TS };
+    this.smokes.push(s);
+    for (const f of this.fires) if (Math.hypot(f.x - s.x, f.z - s.z) < s.r + 1 && Math.abs(f.y - s.y) < 3) f.until = now;       // димът гаси огъня
+    this.emit('smoke', { i: s.id, x: s.x, y: s.y, z: s.z, r: s.r, d: CFG.SMOKE_TIME * TS });
+  }
+  igniteMolotov(g) {
+    const now = Date.now(); this.emit('boom', { x: g.x, y: g.y, z: g.z, r: 0, kind: 'molotov' });
+    for (const s of this.smokes) if (now < s.until && Math.hypot(s.x - g.x, s.z - g.z) < s.r) return;           // в облак дим не се разгаря
+    const f = { id: g.id, x: g.x, y: g.y, z: g.z, r: CFG.MOLO_R, t0: now, until: now + CFG.MOLO_TIME * 1000 * TS, owner: g.owner, ownerTeam: g.ownerTeam, tick: now };
+    this.fires.push(f);
+    this.emit('fire', { i: f.id, x: f.x, y: f.y, z: f.z, r: f.r, d: CFG.MOLO_TIME * TS });
+  }
+  updateFires(dt, now) {
+    this.smokes = this.smokes.filter(s => now < s.until);
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i];
+      if (now >= f.until) { this.fires.splice(i, 1); continue; }
+      if (now - f.tick < 500) continue; f.tick = now;
+      const owner = this.players.get(f.owner);
+      for (const p of this.players.values()) {
+        if (!p.alive || Math.hypot(p.x - f.x, p.z - f.z) > f.r || Math.abs(p.y - f.y) > 1.6) continue;
+        this.hurt(p, owner || null, CFG.MOLO_DPS * 0.5, 'molotov', false, { noArmor: true, ignoreTeam: p.id === f.owner });
+      }
+    }
+  }
   explodeNade(g) {
     this.emit('boom', { x: g.x, y: g.y, z: g.z, r: CFG.NADE_RADIUS });
     const owner = this.players.get(g.owner);
@@ -829,6 +903,7 @@ class Room {
       this.updateUse(dt, now);
       this.updatePickup();
       this.updateNades(dt);
+      this.updateFires(dt, now);
       this.checkEnd(now);
     } else if (this.phase === 'end') {
       this.updateNades(dt);
@@ -848,14 +923,16 @@ class Room {
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
       bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
-      gr: this.nades.map(g => ({ i: g.id, x: r2(g.x), y: r2(g.y), z: r2(g.z) })),
+      gr: this.nades.map(g => ({ i: g.id, k: g.kind, x: r2(g.x), y: r2(g.y), z: r2(g.z) })),
+      sm: this.smokes.map(s => ({ i: s.id, x: s.x, y: s.y, z: s.z, r: s.r, a: Math.round((now - s.t0) / 100) / 10, tl: Math.max(0, Math.round((s.until - now) / 100) / 10) })),
+      fr: this.fires.map(f => ({ i: f.id, x: f.x, y: f.y, z: f.z, r: f.r, a: Math.round((now - f.t0) / 100) / 10, tl: Math.max(0, Math.round((f.until - now) / 100) / 10) })),
     };
     this.emit('snap', snap);
     for (const p of this.players.values()) {
       const am = p.ammo[p.weapon];
       p.socket.emit('me', {
         hp: p.hp, ar: Math.round(p.armor), mo: p.money, w: p.weapon, inv: p.inv, kit: p.kit,
-        mag: p.weapon === 'grenade' ? p.inv.n : am ? am.mag : 0, res: am && p.weapon !== 'grenade' ? am.res : 0,
+        mag: NADE[p.weapon] ? p.inv.g[NADE[p.weapon]] : am ? am.mag : 0, res: am && !NADE[p.weapon] ? am.res : 0,
         rl: p.reloadEnd > now ? 1 : 0, tm: p.team,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
@@ -925,7 +1002,7 @@ io.on('connection', socket => {
     if (!room || !p || !c) return;
     const skins = {};
     for (const [k, v] of Object.entries(c.skins || {})) if (WEAPONS[k] || /^knife_[a-z]+$/.test(k)) skins[k.slice(0, 20)] = cleanSkin(v);
-    p.cos = { knife: KNIFE_TYPES[c.knife] ? c.knife : 'bayonet', skins, char: CHARACTERS[c.char] ? c.char : 'astro' };
+    p.cos = { knife: KNIFE_TYPES[c.knife] ? c.knife : 'bayonet', skins, char: cleanChars(c.char) };
     room.emit('cos', { i: p.id, cos: p.cos });
   });
   socket.on('state', s => room && p && room.onState(p, s || {}));
