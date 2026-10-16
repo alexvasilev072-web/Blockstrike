@@ -14,6 +14,8 @@ import { initSkins } from './skins.js';
 import { drawRadar, markRadarDirty } from './radar.js';
 import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
+import { initVoice } from './voice.js';
+import { keyLabel } from './settings.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
 const $ = s => document.querySelector(s);
@@ -73,7 +75,7 @@ $('#pLobby').onclick = () => socket.emit('tolobby');
 
 // Напускане на стаята (бутон „Назад“ в лобито и „Излез в главното меню“ в паузата). Без презареждане на страницата.
 function leaveRoom() {
-  socket.emit('leave'); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
+  socket.emit('leave'); voice.closeAll(); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
   S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
   S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
   if (document.pointerLockElement) document.exitPointerLock();
@@ -104,12 +106,13 @@ document.querySelectorAll('.fsbtn').forEach(b => b.onclick = goFullscreen);
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) { try { navigator.keyboard?.unlock?.(); } catch { } } });
 addEventListener('beforeunload', e => { if (S.inGame) { e.preventDefault(); e.returnValue = ''; } });
 
-socket.on('lobby', L => {
-  S.lobby = L;
+socket.on('lobby', onLobby);
+function onLobby(L) {
+  S.lobby = L; voice.sync();
   $('#lobCode').textContent = L.code;
   for (const t of ['att', 'def']) {
     $(t === 'att' ? '#listAtt' : '#listDef').innerHTML = L.players.filter(p => p.team === t)
-      .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${p.bot ? '🤖 ' : ''}${esc(p.name)} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}${p.bot ? `<span class="botdiff d-${p.diff}">${{ easy: 'лесен', medium: 'среден', hard: 'труден', expert: 'експерт' }[p.diff] || ''}</span>${L.hostId === S.id ? `<button class="rmBot" data-id="${p.id}" title="Махни бота">✕</button>` : ''}` : ''}</li>`).join('');
+      .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${p.bot ? '🤖 ' : ''}${esc(p.name)}${voice.isTalking(p.id) ? '<span class="spk">🔊</span>' : ''} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}${p.bot ? `<span class="botdiff d-${p.diff}">${{ easy: 'лесен', medium: 'среден', hard: 'труден', expert: 'експерт' }[p.diff] || ''}</span>${L.hostId === S.id ? `<button class="rmBot" data-id="${p.id}" title="Махни бота">✕</button>` : ''}` : ''}</li>`).join('');
   }
   document.querySelectorAll('.rmBot').forEach(b => b.onclick = () => socket.emit('removeBot', b.dataset.id));
   const hostNow = L.hostId === S.id, canBots = hostNow && L.mode === 'comp' && L.players.length < 10;
@@ -129,7 +132,7 @@ socket.on('lobby', L => {
   $('#lobHint').textContent = host ? 'Ти си домакин – избери карта и натисни „Старт“. Можеш да стартираш и сам за проба.' : 'Изчакване домакинът да избере карта и да стартира играта…';
   S.phase = L.phase;
   if (L.phase === 'lobby' && S.inGame) leaveGame();
-});
+}
 
 function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
   S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
@@ -687,7 +690,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) { rel
 $('#clickplay').style.pointerEvents = 'auto';
 $('#playBtn').onclick = e => { e.stopPropagation(); requestLock(); };
 $('#clickplay').onclick = e => { if (e.target.closest('button, select, input, label, a')) return; requestLock(); };
-$('#pBoard').onclick = () => { S.boardPinned = !S.boardPinned; if (!S.boardPinned) $('#board').classList.add('hidden'); };
+$('#pBoard').onclick = () => { S.boardPinned = !S.boardPinned; $('#board').classList.toggle('pin', S.boardPinned); if (!S.boardPinned) $('#board').classList.add('hidden'); };
+$('#board').addEventListener('click', e => { const b = e.target.closest('[data-vm]'); if (b) { voice.toggleMute(b.dataset.vm); b.textContent = voice.isMuted(b.dataset.vm) ? '🔇' : '🔈'; } });
 function askConfirm(title, text, onYes) {
   $('#confirmTitle').textContent = title; $('#confirmText').textContent = text; $('#confirm').classList.remove('hidden');
   $('#confirmYes').onclick = () => { $('#confirm').classList.add('hidden'); onYes(); };
@@ -755,6 +759,30 @@ addEventListener('keyup', e => {
   if (e.code === 'Tab') { S.boardOpen = false; if (!S.boardPinned) $('#board').classList.add('hidden'); }
   if (e.code === 'KeyE') socket.emit('use', false);
 });
+// ================= Гласов чат (push-to-talk) =================
+const voice = initVoice({
+  socket, settings,
+  getMyId: () => S.id, getPlayers: () => S.lobby?.players || [],
+  // право на говорене: в рунд (състезателен режим) само със съотборниците, иначе с всички
+  canTalk: id => { const pl = S.lobby?.players || [], me = pl.find(p => p.id === S.id), o = pl.find(p => p.id === id); if (!me || !o) return false; return !S.inGame || S.mode !== 'comp' || me.team === o.team; },
+  onChange: () => { renderTalk(); if (S.lobby && !S.inGame) onLobby(S.lobby); },
+  onError: m => toast(m, 2500),
+});
+function renderTalk() {
+  const el = $('#talkHud'); if (!el) return; el.textContent = '';
+  for (const id of voice.talkers()) { const nm = (S.lobby?.players || []).find(p => p.id === id)?.name; if (!nm) continue; const d = document.createElement('div'); d.textContent = '🔊 ' + (id === S.id ? 'Ти говориш' : nm); el.append(d); }
+  el.classList.toggle('hidden', !el.children.length);
+}
+function pttKey(e) { return e.code === settings.pttKey && !e.repeat && !S.chatOpen && S.id && (S.inGame || !$('#lobby').classList.contains('hidden')) && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || ''); }
+addEventListener('keydown', e => { if (pttKey(e)) { e.preventDefault(); voice.setPtt(true); } });
+addEventListener('keyup', e => { if (e.code === settings.pttKey) voice.setPtt(false); });
+addEventListener('blur', () => voice.setPtt(false));
+socket.on('disconnect', () => voice.closeAll());
+setInterval(() => voice.applyPolicy(), 1500);          // следи смяна на отбор / фаза
+window.__voice = voice;
+$('#setMic')?.addEventListener('change', () => voice.setMic($('#setMic').value));
+$('#setVoice')?.addEventListener('change', () => { voice.sync(); });
+$('#setVoiceVol')?.addEventListener('input', () => voice.applyPolicy());
 // ================= Текстов чат =================
 // Enter / Y – до всички, U – само до отбора, Esc – затваря. Докато пишеш, клавишите за игра не работят. Текстът се показва само чрез textContent (без HTML).
 const chatEl = $('#chat'), chatLog = $('#chatLog'), chatBox = $('#chatBox'), chatInput = $('#chatInput'), chatTag = $('#chatTag');
@@ -1052,7 +1080,7 @@ function renderBoard(s) {
     return;
   }
   const tbl = t => `<h4 style="color:${TEAM_COL[t]}">${TEAM_NAME[t]} — ${s.sc[t]}</h4><table><tr><th>Играч</th><th>У</th><th>С</th></tr>` +
-    s.pl.filter(p => p.tm === t).sort((a, b) => b.k - a.k).map(p => `<tr class="${p.i === S.id ? 'me' : ''} ${p.al ? '' : 'dead'}"><td>${esc(p.n)}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('') + '</table>';
+    s.pl.filter(p => p.tm === t).sort((a, b) => b.k - a.k).map(p => `<tr class="${p.i === S.id ? 'me' : ''} ${p.al ? '' : 'dead'}"><td>${esc(p.n)}${voice.isTalking(p.i) ? '<span class="spk">🔊</span>' : ''}${S.boardPinned && p.i !== S.id && !String(p.i).startsWith('bot') ? `<button class="vm" data-vm="${esc(p.i)}" title="Заглуши / пусни гласа">${voice.isMuted(p.i) ? '🔇' : '🔈'}</button>` : ''}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('') + '</table>';
   el.innerHTML = tbl('att') + tbl('def') + `<div style="color:#9aa6b8;font-size:13px">Пинг: ${Math.round(S.ping)} мс • Рунд ${s.rd}/${CFG.MAX_ROUNDS} • до ${CFG.WIN_ROUNDS} победи</div>`;
 }
 

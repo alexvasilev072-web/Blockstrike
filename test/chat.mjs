@@ -7,8 +7,8 @@ await new Promise(r => srv.stdout.on('data', d => String(d).includes('слуша
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fails++; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function client(name) {
-  const s = io(`http://localhost:${PORT}`, { transports: ['websocket'] }), c = { s, chat: [], name };
-  s.on('chat', m => c.chat.push(m)); s.on('lobby', l => c.lobby = l);
+  const s = io(`http://localhost:${PORT}`, { transports: ['websocket'] }), c = { s, chat: [], sig: [], talk: [], name };
+  s.on('chat', m => c.chat.push(m)); s.on('lobby', l => c.lobby = l); s.on('vc:signal', m => c.sig.push(m)); s.on('vc:talk', m => c.talk.push(m));
   c.join = () => new Promise(res => s.emit('join', { name, room: 'CHAT' }, r => { c.id = r.id; res(r); }));
   return c;
 }
@@ -38,5 +38,21 @@ B.chat.length = 0; C.chat.length = 0; await sleep(750);
 A.s.emit('chat', { t: 'само отбор', team: true }); await sleep(200);
 ok(mates.every(x => x.chat.some(m => m.t === 'само отбор' && m.team)), 'съотборниците получават съобщението');
 ok(others.every(x => !x.chat.length), 'противниковият отбор не го получава');
+console.log('— Гласов чат: сигнализация и индикатор');
+A.s.emit('vc:signal', { to: B.id, data: { sdp: { type: 'offer', sdp: 'v=0' } } }); await sleep(150);
+ok(B.sig.length === 1 && B.sig[0].from === A.id && B.sig[0].data.sdp.type === 'offer', 'offer се препраща до адресата с id на подателя');
+ok(C.sig.length === 0, 'другите не го получават');
+A.s.emit('vc:signal', { to: 'липсва', data: { candidate: {} } }); A.s.emit('vc:signal', { to: A.id, data: { candidate: {} } }); await sleep(100);
+ok(A.sig.length === 0, 'несъществуващ адресат и сигнал към себе си се игнорират');
+A.s.emit('vc:signal', { to: B.id, data: { sdp: 'x'.repeat(30000) } }); await sleep(100);
+ok(B.sig.length === 1, 'прекалено голям сигнал (>20 KB) се отхвърля');
+A.s.emit('vc:talk', true); await sleep(150);
+ok(B.talk.at(-1)?.id === A.id && B.talk.at(-1)?.on === true && C.talk.at(-1)?.on === true && A.talk.length === 0, 'в лобито индикаторът „говори“ стига до всички (не и до подателя)');
+A.s.emit('vc:talk', false); await sleep(100);
+A.s.emit('start'); await sleep(600);
+B.talk.length = 0; C.talk.length = 0; A.s.emit('vc:talk', true); await sleep(200);
+const phase = A.lobby?.phase, ta2 = (A.lobby?.players || []).find(p => p.id === A.id)?.team;
+const same = [B, C].filter(x => (A.lobby?.players || []).find(p => p.id === x.id)?.team === ta2), diff = [B, C].filter(x => !same.includes(x));
+ok(same.every(x => x.talk.some(m => m.on)) && diff.every(x => x.talk.length === 0), 'в рунд индикаторът е само за съотборниците (' + same.length + ' съотборник/ци, ' + diff.length + ' противник/ци)');
 for (const c of [A, B, C]) c.s.close(); srv.kill();
 console.log(fails ? `\nПровалени: ${fails}` : '\nЧатът е в ред.'); process.exit(fails ? 1 : 0);

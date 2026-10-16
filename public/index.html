@@ -10,6 +10,7 @@
 <body>
 <canvas id="game"></canvas>
 <div id="flashfx"></div>
+<div id="talkHud" class="hidden"></div>
 <div id="chat" class="hidden"><div id="chatLog"></div><div id="chatBox" class="hidden"><span id="chatTag">Всички</span><input id="chatInput" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Съобщение… (Enter – изпрати, Esc – отказ)"></div></div>
 <div id="smokefx"></div>
 <div id="realVig"></div>
@@ -79,6 +80,11 @@
       <label>Ефекти <span class="pair"><input id="setVolFx" type="range" min="0" max="100"><output id="setVolFxV"></output></span></label>
       <label>Стъпки <span class="pair"><input id="setVolSteps" type="range" min="0" max="100"><output id="setVolStepsV"></output></span></label>
       <label class="chk"><input id="setRetro" type="checkbox"> Ретро звук (1.6 стил)</label>
+      <h4>Гласов чат</h4>
+      <label class="chk"><input id="setVoice" type="checkbox"> Гласов чат включен (микрофон се иска при първо натискане на клавиша)</label>
+      <label>Сила на гласовете <span class="pair"><input id="setVoiceVol" type="range" min="0" max="100" step="5"><output id="setVoiceVolV"></output></span></label>
+      <label>Микрофон <select id="setMic"><option value="">По подразбиране</option></select></label>
+      <label>Клавиш за говорене (push-to-talk) <button id="setPtt" type="button">V</button></label>
       <h4>Мерник</h4>
       <div class="crossrow">
         <div>
@@ -90,7 +96,7 @@
       <h4>Графика</h4>
       <label>Качество <select id="setQuality"><option value="low">Ниско</option><option value="medium">Средно</option><option value="high">Високо</option></select></label>
       <label>Лимит на FPS<select id="setFpsLim"><option value="60">60</option><option value="144">144</option><option value="240">240</option><option value="0">Без лимит</option></select></label>
-      <label>Размер на оръжието <b id="setVmV"></b><input id="setVm" type="range" min="60" max="130" step="5"></label>
+      <label>Размер на оръжието <span class="pair"><input id="setVm" type="range" min="60" max="130" step="5"><output id="setVmV"></output></span></label>
       <label class="chk"><input id="setReal" type="checkbox"> Реалистична графика (сенки, небе, меки текстури)</label>
       <label class="chk"><input id="setFps" type="checkbox"> Показвай FPS</label>
       <div class="row"><button class="fsbtn">Цял екран</button><button id="setReset">Нулирай настройките</button></div>

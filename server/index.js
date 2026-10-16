@@ -52,6 +52,12 @@ app.use(express.static(path.join(ROOT, 'public')));
 app.get('/healthz', (_, res) => res.send('ok'));
 // звукови файлове по избор (public/sounds): ако има файл с подходящо име, клиентът го ползва вместо синтезирания звук
 app.get('/api/sounds', (_, res) => { try { res.json(fs.readdirSync(path.join(ROOT, 'public/sounds')).filter(f => /\.(wav|ogg|mp3)$/i.test(f))); } catch { res.json([]); } });
+// ICE сървъри за гласовия чат: публичен STUN + по желание TURN (променливи на средата TURN_URLS="turn:хост:3478,turns:хост:5349", TURN_USERNAME, TURN_CREDENTIAL)
+app.get('/api/ice', (_, res) => {
+  const iceServers = [{ urls: ['stun:stun.l.google.com:19302'] }], urls = String(process.env.TURN_URLS || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (urls.length) iceServers.push({ urls, username: process.env.TURN_USERNAME || '', credential: process.env.TURN_CREDENTIAL || '' });
+  res.json({ iceServers });
+});
 app.get('/api/maps', (_, res) => res.json(Object.values(MAPS).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description, bsp: !!m.bsp }))));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true } });
@@ -156,7 +162,7 @@ class Room {
     this.players.delete(id); this.best.delete(id);
     if (this.hostId === id) this.hostId = [...this.players.values()].find(q => !q.bot)?.id || null;
     if (!this.hostId) { rooms.delete(this.code); return; }          // няма повече хора – ботовете не държат стаята
-    this.emit('cosLeave', id);
+    this.emit('cosLeave', id); this.emit('vc:talk', { id, on: false });
     this.emitLobby();
   }
 
@@ -1026,6 +1032,19 @@ io.on('connection', socket => {
     const teamOnly = !!d?.team && room.mode === 'comp', msg = { id: p.id, n: p.name, tm: p.team, team: teamOnly, t: text };
     if (teamOnly) { for (const q of room.players.values()) if (!q.bot && q.team === p.team) q.socket.emit('chat', msg); }
     else room.emit('chat', msg);
+  });
+  // гласов чат: сървърът само препраща сигналите (offer/answer/ICE) между хора в една стая; ботовете се игнорират
+  socket.on('vc:signal', d => {
+    if (!room || !p || typeof d?.to !== 'string') return;
+    const to = room.players.get(d.to); if (!to || to.bot || to.id === p.id) return;
+    const data = d.data; if (!data || typeof data !== 'object') return;
+    let len = 0; try { len = JSON.stringify(data).length; } catch { return; } if (len > 20000) return;
+    to.socket.emit('vc:signal', { from: p.id, data });
+  });
+  // кой говори (за индикатора): в рунд само до съотборниците, иначе до всички
+  socket.on('vc:talk', on => {
+    if (!room || !p) return; const msg = { id: p.id, on: !!on };
+    for (const q of room.players.values()) { if (q.bot || q.id === p.id) continue; if (room.phase !== 'lobby' && room.mode === 'comp' && q.team !== p.team) continue; q.socket.emit('vc:talk', msg); }
   });
   socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });

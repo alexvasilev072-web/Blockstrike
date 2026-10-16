@@ -164,3 +164,9 @@ body.real #realVig { display: block; }
 #chatBox { display: flex; gap: 6px; align-items: center; margin-top: 6px; pointer-events: auto; }
 #chatTag { background: rgba(0,0,0,.7); border: 2px solid #46546b; padding: 6px 8px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 #chatInput { flex: 1; margin: 0; padding: 7px 10px; font-size: 15px; }
+
+/* гласов чат */
+#talkHud { position: fixed; left: 16px; top: 56px; z-index: 6; pointer-events: none; font-size: 15px; font-weight: 700; text-shadow: 1px 1px 0 #000; display: flex; flex-direction: column; gap: 2px; }
+#talkHud div { background: rgba(0,0,0,.55); padding: 2px 8px; border-left: 3px solid #7cf08a; }
+.spk { color: #7cf08a; margin-left: 4px; } #board button.vm { pointer-events: auto; padding: 0 6px; font-size: 13px; margin-left: 6px; }
+#board.pin { pointer-events: auto; }
