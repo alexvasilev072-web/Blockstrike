@@ -15,6 +15,7 @@ import { drawRadar, markRadarDirty } from './radar.js';
 import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
+import { music } from './music.js';
 import { keyLabel } from './settings.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
@@ -75,7 +76,7 @@ $('#pLobby').onclick = () => socket.emit('tolobby');
 
 // Напускане на стаята (бутон „Назад“ в лобито и „Излез в главното меню“ в паузата). Без презареждане на страницата.
 function leaveRoom() {
-  socket.emit('leave'); voice.closeAll(); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
+  socket.emit('leave'); voice.closeAll(); music.setScene('menu'); document.body.classList.remove('ingame'); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
   S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
   S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
   if (document.pointerLockElement) document.exitPointerLock();
@@ -138,6 +139,7 @@ function onLobby(L) {
 }
 
 function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
+  music.setScene('menu'); document.body.classList.remove('ingame');
   S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
   $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
@@ -551,6 +553,7 @@ initHeroes({ onChange: () => sendLoadout() });
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
+  music.setScene('game'); document.body.classList.add('ingame');
   S.sentReady = false; if (S.locked) { S.sentReady = true; socket.emit('ready'); }
   S.mode = mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.mapReady = (async () => {
@@ -762,6 +765,9 @@ addEventListener('keyup', e => {
   if (e.code === 'Tab') { S.boardOpen = false; if (!S.boardPinned) $('#board').classList.add('hidden'); }
   if (e.code === 'KeyE') socket.emit('use', false);
 });
+// ----- музика: браузърите блокират autoplay – започва при първо кликване/клавиш -----
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => music.unlock(), { once: false, capture: true, passive: true });
+window.__music = music;
 // ================= Гласов чат (push-to-talk) =================
 const voice = initVoice({
   socket, settings,

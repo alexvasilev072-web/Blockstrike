@@ -10,6 +10,7 @@
 <body>
 <canvas id="game"></canvas>
 <div id="flashfx"></div>
+<div id="musicBar" title="Музика в менюто"><button id="musicBtn" type="button">🔊</button><input id="musicVol" type="range" min="0" max="100" step="1" value="25"></div>
 <div id="talkHud" class="hidden"></div>
 <div id="chat" class="hidden"><div id="chatLog"></div><div id="chatBox" class="hidden"><span id="chatTag">Всички</span><input id="chatInput" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Съобщение… (Enter – изпрати, Esc – отказ)"></div></div>
 <div id="smokefx"></div>
@@ -79,6 +80,7 @@
       <label>Общо <span class="pair"><input id="setVol" type="range" min="0" max="100"><output id="setVolV"></output></span></label>
       <label>Ефекти <span class="pair"><input id="setVolFx" type="range" min="0" max="100"><output id="setVolFxV"></output></span></label>
       <label>Стъпки <span class="pair"><input id="setVolSteps" type="range" min="0" max="100"><output id="setVolStepsV"></output></span></label>
+      <label>Музика в менюто <span class="pair"><input id="setMusic" type="range" min="0" max="100" step="1"><output id="setMusicV"></output></span></label>
       <label class="chk"><input id="setRetro" type="checkbox"> Ретро звук (1.6 стил)</label>
       <h4>Гласов чат</h4>
       <label class="chk"><input id="setVoice" type="checkbox"> Гласов чат включен (микрофон се иска при първо натискане на клавиша)</label>

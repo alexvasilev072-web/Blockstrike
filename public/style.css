@@ -108,7 +108,7 @@ input[type=range] { padding: 0; accent-color: #e0701a; }
 .menuwrap { width: min(430px, 92vw); padding: 26px 30px; background: rgba(14,18,26,.9); border: 3px solid #3a4558; box-shadow: 0 8px 0 #0a0d12; }
 .menuwrap label { margin: 10px 0; } .menuwrap button, .menuwrap .row input { margin-top: 8px; }
 .menuwrap .row { align-items: stretch; } .menuwrap .row input { flex: 1; margin-top: 8px; text-transform: uppercase; }
-.logo { margin: 0 0 4px; font-weight: 800; font-size: 52px; letter-spacing: 4px; line-height: 1; image-rendering: pixelated;
+.logo { margin: 0 0 4px; font-weight: 800; font-size: 44px; letter-spacing: 2px; line-height: 1; image-rendering: pixelated;
   text-shadow: 1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000, 4px 4px 0 #000, 5px 5px 0 #000, 6px 6px 0 rgba(0,0,0,.6); }
 .logo .b { color: #f1f3f6; } .logo .s { color: #f0922b; }
 button.danger { border-color: #a04444; background: #4a2020; } button.danger:hover { background: #6a2a2a; }
@@ -171,3 +171,8 @@ body.real #realVig { display: block; }
 .spk { color: #7cf08a; margin-left: 4px; } #board button.vm { pointer-events: auto; padding: 0 6px; font-size: 13px; margin-left: 6px; }
 #board.pin { pointer-events: auto; }
 #startBtn.over { opacity: .55; outline: 2px solid #ff5a4a; }
+
+/* музика (меню/лоби) */
+#musicBar { position: fixed; top: 10px; right: 12px; z-index: 60; display: flex; align-items: center; gap: 6px; background: rgba(10,13,18,.72); border: 2px solid #3a4558; padding: 3px 8px; }
+#musicBar button { padding: 2px 6px; font-size: 16px; background: none; border: 0; } #musicBar input { width: 90px; margin: 0; padding: 0; }
+body.ingame #musicBar { display: none; }
