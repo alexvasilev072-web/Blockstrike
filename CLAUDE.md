@@ -33,11 +33,15 @@ public/viewmodel.js    анимации от първо лице: вадене, 
 public/skins.js        меню за скинове с 3D преглед
 public/settings.js     настройки (localStorage): мишка, FOV, звук (вкл. ретро), мерник, графика
 public/radar.js        радар (съотборници, носител/паднала/заложена бомба)
+public/characters.js    герои (модели на играчите: заоблени, процедурни); public/heroes.js – меню „Герои“
+server/bots.js         ботове: A* навигация, възприятие (зрение/слух), цел и стрелба през room.shoot, тактика, гранати; нива easy/medium/hard/expert
 public/sounds/         по избор: звукови файлове (имената са в README.md там)
 tools/genmaps.mjs      генератор на comp картите mine/snow/harbor; tools/genruns.mjs – parkour и surf карти (с проверка на скоковете)
 tools/validate-maps.mjs проверка на карти; tools/bot.mjs – тестов бот
 test/physics.mjs       тест на физиката (вода, рампи, слуз, лед, платформи) без браузър
 test/runs.mjs          бот минава всички скокове на parkour картите и държи рампите на surf картите
+test/bots.mjs         ботове: пътища до обектите на всички карти + мачове на ускорен часовник (трудните бият лесните); test/botsim.mjs – сравнение на нивата
+tools/importsounds.mjs копира звуци от CS:GO пакет в public/sounds (само локално)
 test/smoke.mjs         автоматичен тест на сървъра (BS_TEST=1: ускорени таймери + телепорт `dbgTp`)
 ```
 
@@ -67,6 +71,7 @@ Build `npm install`, Start `npm start`, Health check `/healthz`. Сървъръ�
 - Нов блок: `shared/world.js` (`def(id, …)`) + плочки в `public/textures.js` (`TILES` и `BLOCK_TILES`). Рампите са `WEDGE` (посоката е посоката на нарастване на височината).
 - Ново оръжие: данни в `shared/weapons.js` + чертеж в `public/voxmodel.js` (`BP`) + базова поза и анимации във `public/viewmodel.js` + магазин (`ITEMS`) + звук в `public/audio.js`.
 - Нов звук с файл: сложи `име.wav|ogg|mp3` в `public/sounds/` (CC0/собствен запис) и добави името в README-то там; иначе остава процедурният.
+- Ботове: промени в `server/bots.js` проверявай с `node test/bots.mjs` и `node test/botsim.mjs`; ботът ползва само публични механики (физика, room.shoot, room.buy) и няма достъп до скрита информация за враговете. Нов герой: функция в `BUILDERS` (`public/characters.js`) + запис в `CHARACTERS` (`shared/weapons.js`).
 - Нова comp карта: JSON или функция в `tools/genmaps.mjs`, после `npm run validate`. Нова parkour/surf карта: функция в `tools/genruns.mjs` (assertHop проверява скоковете), после `node test/runs.mjs`.
 - Промени по движението правиш само в `shared/physics.js` и добавяш проверка в `test/physics.mjs`.
 - След промяна: `npm test` и `npm run validate`; провери и в браузър.

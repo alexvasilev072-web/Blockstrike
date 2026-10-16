@@ -5,14 +5,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
+import { Bot, DIFFS, BOT_NAMES } from './bots.js';
 import { Bsp, boxBlockedBsp, toCs, fromCs, U as BU } from '../shared/bsp.js';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
-import { WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
+import { CHARACTERS, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT || 3000;
 const TEST = process.env.BS_TEST === '1'; // само за автоматичния тест: ускорени таймери + телепорт
-const TS = TEST ? 0.25 : 1;
+const TS = process.env.BS_TS ? Number(process.env.BS_TS) : TEST ? 0.25 : 1;
 
 // ---------- Карти ----------
 const MAPS = {};
@@ -108,6 +109,7 @@ class Room {
     this.nid = 1;
     this.started = { att: 0, def: 0 };
     this.lastTick = Date.now();
+    this.botSeq = 0; this.botPlan = null;
   }
 
   get map() { return MAPS[this.mapId]; }
@@ -118,7 +120,7 @@ class Room {
     return {
       code: this.code, hostId: this.hostId, mapId: this.mapId, phase: this.phase,
       mode: this.mode, maps: Object.values(MAPS).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0)).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description, mode: m.mode, level: m.json.level || '' })),
-      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team })),
+      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: !!p.bot, diff: p.bot ? p.diff : undefined })),
       sc: this.sc, round: this.round,
     };
   }
@@ -130,7 +132,7 @@ class Room {
       hp: 0, armor: 0, kit: false, alive: false, money: CFG.START_MONEY, kills: 0, deaths: 0, inv: null, ammo: {}, weapon: 'pistol',
       nextShot: 0, reloadEnd: 0, shotIdx: 0, lastShot: 0, using: false, useP: 0, useStart: null, useKind: null,
       hist: [], lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
-      cos: { knife: 'bayonet', skins: {} },
+      cos: { knife: 'bayonet', skins: {}, char: 'astro' },
     };
     const cnt = { att: 0, def: 0 };
     for (const q of this.players.values()) cnt[q.team]++;
@@ -146,10 +148,37 @@ class Room {
     const p = this.players.get(id);
     if (p && p.alive && p.inv.bomb) this.dropBomb(p);
     this.players.delete(id); this.best.delete(id);
-    if (this.hostId === id) this.hostId = this.players.keys().next().value || null;
-    if (this.players.size === 0) { rooms.delete(this.code); return; }
+    if (this.hostId === id) this.hostId = [...this.players.values()].find(q => !q.bot)?.id || null;
+    if (!this.hostId) { rooms.delete(this.code); return; }          // няма повече хора – ботовете не държат стаята
     this.emit('cosLeave', id);
     this.emitLobby();
+  }
+
+  // ----- ботове (само в състезателния режим, само в лобито) -----
+  addBot(team, diff) {
+    if (this.phase !== 'lobby' || this.run || this.players.size >= CFG.MAX_PLAYERS || !DIFFS[diff]) return null;
+    const used = new Set([...this.players.values()].map(q => q.name));
+    const base = BOT_NAMES.filter(n => !used.has(n + ' (бот)')); const nm = (base.length ? base[Math.floor(Math.random() * base.length)] : 'Бот' + (this.botSeq + 1)) + ' (бот)';
+    const id = 'bot' + (++this.botSeq) + '_' + Math.random().toString(36).slice(2, 6);
+    const sock = { id, emit() { }, join() { }, leave() { } };
+    const p = this.addPlayer(sock, nm);
+    p.team = team; p.diff = diff; p.bot = new Bot(this, p, diff);
+    const ids = Object.keys(CHARACTERS), kn = Object.keys(KNIFE_TYPES);
+    p.cos = { knife: kn[Math.floor(Math.random() * kn.length)], skins: {}, char: ids[Math.floor(Math.random() * ids.length)] };
+    this.emit('cos', { i: p.id, cos: p.cos });
+    this.emitLobby();
+    return p;
+  }
+  removeBot(id) {
+    const q = this.players.get(id);
+    if (this.phase !== 'lobby' || !q || !q.bot) return;
+    this.removePlayer(id);
+  }
+  planBots() {
+    const names = Object.keys(this.map.json.sites || {}); if (!names.length) { this.botPlan = null; return; }
+    this.botPlan = { att: names[Math.floor(Math.random() * names.length)], def: {} };
+    let i = Math.floor(Math.random() * names.length);
+    for (const p of this.players.values()) if (p.team === 'def') this.botPlan.def[p.id] = names[i++ % names.length];
   }
 
   // ----- екипировка -----
@@ -292,6 +321,8 @@ class Room {
       p.lastState = now; p.spd = 0; p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
       this.started[p.team]++;
     }
+    this.planBots();
+    for (const p of this.players.values()) if (p.bot) { p.using = false; p.bot.reset(); }
     // бомбата получава случаен нападател
     const atts = [...this.players.values()].filter(p => p.team === 'att');
     if (atts.length) atts[Math.floor(Math.random() * atts.length)].inv.bomb = true;
@@ -365,6 +396,7 @@ class Room {
     d = Math.max(1, Math.round(d));
     victim.hp -= d;
     victim.socket.emit('hurt', { dmg: d, from: attacker && attacker !== victim ? [attacker.x, attacker.z] : null });
+    if (victim.bot && attacker && attacker !== victim) victim.bot.onHurt(attacker, d);
     if (victim.hp <= 0) this.kill(victim, attacker, weapon, head);
     return d;
   }
@@ -522,6 +554,7 @@ class Room {
       }
     }
     this.emit('shot', { i: p.id, o: o.map(r2), e: ends, w: p.weapon, hit: hitAny });
+    for (const q of this.players.values()) if (q.bot && q.alive && q.team !== p.team) q.bot.onShotHeard(p, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     if (total) p.socket.emit('hit', { dmg: total, hd: anyHead, kill: anyKill });
     if (am.mag === 0 && am.res > 0) this.reload(p);
   }
@@ -788,6 +821,7 @@ class Room {
         if (am && w) { const take = Math.min(w.mag - am.mag, am.res); am.mag += take; am.res -= take; }
       }
     }
+    if (this.phase !== 'matchover') for (const p of this.players.values()) if (p.bot) p.bot.update(dt, now);
     if (this.phase === 'freeze' && now >= this.phaseEnd) {
       this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.LIVE * 1000 * TS;
     }
@@ -871,9 +905,12 @@ io.on('connection', socket => {
   socket.on('setMode', m => {
     if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !['comp', 'parkour', 'surf'].includes(m)) return;
     room.mode = m;
+    if (m !== 'comp') for (const q of [...room.players.values()]) if (q.bot) room.removePlayer(q.id);       // ботове има само в състезателния режим
     if (MAPS[room.mapId]?.mode !== m) room.mapId = Object.values(MAPS).filter(x => x.mode === m).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0))[0]?.json.id || room.mapId;
     room.emitLobby();
   });
+  socket.on('addBot', d => { if (room && p && room.hostId === p.id) room.addBot(d?.team === 'def' ? 'def' : 'att', DIFFS[d?.diff] ? d.diff : 'medium'); });
+  socket.on('removeBot', id => { if (room && p && room.hostId === p.id && typeof id === 'string') room.removeBot(id); });
   socket.on('cp', () => { if (room && p && room.run && p.alive) room.respawnRun(p, 'cp'); });
   socket.on('restart', () => { if (room && p && room.run && p.alive) room.restartRun(p); });
   socket.on('tolobby', () => {
@@ -888,7 +925,7 @@ io.on('connection', socket => {
     if (!room || !p || !c) return;
     const skins = {};
     for (const [k, v] of Object.entries(c.skins || {})) if (WEAPONS[k] || /^knife_[a-z]+$/.test(k)) skins[k.slice(0, 20)] = cleanSkin(v);
-    p.cos = { knife: KNIFE_TYPES[c.knife] ? c.knife : 'bayonet', skins };
+    p.cos = { knife: KNIFE_TYPES[c.knife] ? c.knife : 'bayonet', skins, char: CHARACTERS[c.char] ? c.char : 'astro' };
     room.emit('cos', { i: p.id, cos: p.cos });
   });
   socket.on('state', s => room && p && room.onState(p, s || {}));
@@ -909,3 +946,5 @@ io.on('connection', socket => {
 });
 
 server.listen(PORT, () => console.log(`BlockStrike слуша на http://localhost:${PORT}  (карти: ${Object.keys(MAPS).join(', ')})`));
+
+export const __test = { Room, MAPS, rooms, io, server };

@@ -54,6 +54,15 @@ export const KNIFE = {
   left:  { dmg: 40, back: 90,  rate: 0.45, range: 2.0 },
   right: { dmg: 65, back: 180, rate: 1.05, range: 1.7 },
 };
+// Герои (модели на играчите): само името; моделите са в public/characters.js
+export const CHARACTERS = {
+  astro:  { name: 'Космонавт', desc: 'Бял скафандър със златен визьор' },
+  fox:    { name: 'Лисан', desc: 'Лисица диверсант с пухкава опашка' },
+  robot:  { name: 'Андроид', desc: 'Стоманен робот със светещ визьор' },
+  alien:  { name: 'Пришълец', desc: 'Зелен пришълец с огромни очи' },
+  knight: { name: 'Рицар', desc: 'Шлем с перо и наплечници' },
+  ninja:  { name: 'Нинджа-котка', desc: 'Черен костюм, шал и светещи очи' },
+};
 export const KNIFE_TYPES = {
   bayonet:  { name: 'Байонет' },
   karambit: { name: 'Карамбит' },

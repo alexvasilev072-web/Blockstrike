@@ -12,6 +12,8 @@ import { audio } from './audio.js';
 import { ViewModel } from './viewmodel.js';
 import { initSkins } from './skins.js';
 import { drawRadar, markRadarDirty } from './radar.js';
+import { buildCharacter, armGeoFor, handGeoFor } from './characters.js';
+import { initHeroes, loadChar } from './heroes.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
 const $ = s => document.querySelector(s);
@@ -59,7 +61,10 @@ $('#joinQuery').onclick = () => joinRoom(qRoom);
 $('#name').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') joinRoom(qRoom); };
 $('#room').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') joinRoom($('#room').value.trim()); };
 $('#copyLink').onclick = () => { navigator.clipboard?.writeText(location.href); $('#copyLink').textContent = 'Копирано!'; setTimeout(() => $('#copyLink').textContent = 'Копирай линк', 1500); };
-document.querySelectorAll('[data-team]').forEach(b => b.onclick = () => socket.emit('team', b.dataset.team));
+document.querySelectorAll('[data-team]:not(.addBot)').forEach(b => b.onclick = () => socket.emit('team', b.dataset.team));
+document.querySelectorAll('.addBot').forEach(b => b.onclick = () => socket.emit('addBot', { team: b.dataset.team, diff: $('#botDiff').value }));
+$('#botFill').onclick = () => { const L = S.lobby; if (!L) return; const cnt = { att: 0, def: 0 }; L.players.forEach(p => cnt[p.team]++); let n = 10 - L.players.length; while (n-- > 0) { const t = cnt.att <= cnt.def ? 'att' : 'def'; cnt[t]++; socket.emit('addBot', { team: t, diff: $('#botDiff').value }); } };
+$('#botClear').onclick = () => (S.lobby?.players || []).filter(p => p.bot).forEach(p => socket.emit('removeBot', p.id));
 $('#startBtn').onclick = () => { audio.init(); socket.emit('start'); };
 $('#mapSel').onchange = e => socket.emit('setMap', e.target.value);
 $('#backBtn').onclick = () => leaveRoom();
@@ -104,8 +109,13 @@ socket.on('lobby', L => {
   $('#lobCode').textContent = L.code;
   for (const t of ['att', 'def']) {
     $(t === 'att' ? '#listAtt' : '#listDef').innerHTML = L.players.filter(p => p.team === t)
-      .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${esc(p.name)} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}</li>`).join('');
+      .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${p.bot ? '🤖 ' : ''}${esc(p.name)} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}${p.bot ? `<span class="botdiff d-${p.diff}">${{ easy: 'лесен', medium: 'среден', hard: 'труден', expert: 'експерт' }[p.diff] || ''}</span>${L.hostId === S.id ? `<button class="rmBot" data-id="${p.id}" title="Махни бота">✕</button>` : ''}` : ''}</li>`).join('');
   }
+  document.querySelectorAll('.rmBot').forEach(b => b.onclick = () => socket.emit('removeBot', b.dataset.id));
+  const hostNow = L.hostId === S.id, canBots = hostNow && L.mode === 'comp' && L.players.length < 10;
+  document.querySelectorAll('.addBot').forEach(b => b.disabled = !canBots);
+  $('#botBar').style.display = L.mode === 'comp' && hostNow ? '' : 'none'; $('#botFill').disabled = !canBots; $('#botClear').disabled = !L.players.some(p => p.bot);
+  document.querySelectorAll('.addBot').forEach(b => b.style.display = L.mode === 'comp' && hostNow ? '' : 'none');
   const maps = L.maps.filter(m => m.mode === L.mode), sel = $('#mapSel'), key = maps.map(m => m.id).join(',');
   if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join(''); sel.dataset.key = key; }
   sel.value = L.mapId; sel.disabled = L.hostId !== S.id;
@@ -219,18 +229,14 @@ function nameSprite(name, col) {
 }
 const armGeo = new THREE.BoxGeometry(0.15, 0.15, 1).translate(0, 0, -0.5);
 const handGeo = new THREE.BoxGeometry(0.13, 0.13, 0.13);
+const armGeos = {}, handGeos = {};
 function makeModel(p) {
-  const shirt = p.tm === 'att' ? 0xe07b1a : 0x2f6fdc, dark = p.tm === 'att' ? 0x7a3d0c : 0x1a3b78;
-  const g = new THREE.Group();
-  const head = box(0.5, 0.5, 0.5, mat(0xe8b98f)); head.position.set(0, 1.55, 0);
-  const hat = box(0.54, 0.16, 0.54, mat(dark)); hat.position.set(0, 0.2, 0); head.add(hat);
-  const face = box(0.3, 0.08, 0.02, mat(0x222222)); face.position.set(0, 0.04, -0.26); head.add(face);
-  const body = box(0.56, 0.72, 0.3, mat(shirt)); body.position.set(0, 1.0, 0);
-  const mkLeg = x => { const l = new THREE.Group(); l.position.set(x, 0.66, 0); const m = box(0.24, 0.66, 0.26, mat(0x2b3550)); m.position.y = -0.33; l.add(m); return l; };
-  const legL = mkLeg(-0.14), legR = mkLeg(0.14);
+  const char = S.cosById.get(p.i)?.char || 'astro', c = buildCharacter(char, p.tm);
+  const g = new THREE.Group(), head = c.head, body = c.body, legL = c.legL, legR = c.legR;
   const aim = new THREE.Group(); aim.position.set(0, 1.3, 0); aim.rotation.order = 'YXZ';
-  const armR = new THREE.Mesh(armGeo, mat(shirt)), armL = new THREE.Mesh(armGeo, mat(shirt));
-  const handR = new THREE.Mesh(handGeo, mat(0xe8b98f)), handL = new THREE.Mesh(handGeo, mat(0xe8b98f));
+  const thin = !!c.thin, ag = armGeos[thin] || (armGeos[thin] = armGeoFor(thin)), hg = handGeos[thin] || (handGeos[thin] = handGeoFor(thin)), armMat = new THREE.MeshBasicMaterial({ color: c.armHex, vertexColors: true });
+  const armR = new THREE.Mesh(ag, armMat), armL = new THREE.Mesh(ag, armMat);
+  const handR = new THREE.Mesh(hg, mat(c.handHex)), handL = new THREE.Mesh(hg, mat(c.handHex));
   const gunHolder = new THREE.Group(); gunHolder.position.set(0.2, -0.2, -0.42);
   aim.add(armR, armL, handR, handL, gunHolder);
   const bomb = box(0.4, 0.14, 0.26, mat(0x2d2d2d)); bomb.position.set(0, 1.05, 0.27); bomb.visible = false;
@@ -238,7 +244,7 @@ function makeModel(p) {
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.renderOrder = 1;
   g.add(head, body, legL, legR, aim, bomb, shadow);
-  const m = { g, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
+  const m = { char, tick: c.tick, g, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
   scene.add(g); return m;
 }
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _fwd = new THREE.Vector3(0, 0, -1);
@@ -290,7 +296,7 @@ function updateModels(dt) {
     if (p.i === S.id) continue;
     ids.add(p.i);
     let m = models.get(p.i);
-    if (!m || m.team !== p.tm) { if (m) scene.remove(m.g); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
+    if (!m || m.team !== p.tm || m.char !== (S.cosById.get(p.i)?.char || 'astro')) { if (m) scene.remove(m.g); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
     const pose = poseOf(p.i, rt) || p;
     m.g.visible = !(S.specId === p.i && !alive());
     m.g.position.set(pose.x, pose.y, pose.z);
@@ -300,7 +306,7 @@ function updateModels(dt) {
     m.lastX = pose.x; m.lastZ = pose.z;
     m.phase += Math.min(sp, 8) * dt * 2.2;
     const sw = p.al ? Math.sin(m.phase) * Math.min(1, sp / 4) * 0.8 : 0;
-    m.legL.rotation.x = sw; m.legR.rotation.x = -sw;
+    m.legL.rotation.x = sw; m.legR.rotation.x = -sw; m.tick?.(performance.now() / 1000, p.al ? sp : 0);
     // звуци на другите играчи: стъпки (не се чуват при Shift/клякане), скок, приземяване
     if (p.al && dist < 2) {
       const pos = [pose.x, pose.y + 0.2, pose.z];
@@ -320,7 +326,7 @@ function updateModels(dt) {
     m.bomb.visible = !!p.bm && !!p.al;
     if (m.flash) m.flash.visible = Date.now() < m.flashUntil;
     // тиктакащ звук при залагане/обезвреждане от други играчи
-    if (p.us && p.al) { m.useT = (m.useT || 0) - dt; if (m.useT <= 0) { m.useT = p.us === 1 ? 0.5 : 0.35; (p.us === 1 ? audio.plantTick : audio.defuseTick)([pose.x, pose.y + 0.5, pose.z]); } }
+    if (p.us && p.al) { m.useT = (m.useT || 0) - dt; if (m.useT <= 0) { m.useT = p.us === 1 ? 0.5 : 0.8; (p.us === 1 ? audio.plantTick : audio.defuseTick)([pose.x, pose.y + 0.5, pose.z]); } }
   }
   for (const [id, m] of models) if (!ids.has(id)) { scene.remove(m.g); models.delete(id); }
 }
@@ -420,7 +426,8 @@ function banner(html, col, ms = 4000) { const el = $('#banner'); el.innerHTML = 
 const alive = () => S.me.hp > 0;
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 initSkins({ onChange: () => sendLoadout() });
-function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {} }); } catch { } }
+function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {}, char: loadChar() }); } catch { } }
+initHeroes({ onChange: () => sendLoadout() });
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
@@ -827,6 +834,7 @@ function updateHud() {
   $('#items').textContent = [m.inv.bomb ? '💣 Бомба (G – хвърли)' : '', m.kit ? '🔧 Kit' : ''].filter(Boolean).join('  ');
   const us = m.us;
   $('#useBar').classList.toggle('hidden', !us);
+  if (us) { const nt = performance.now(); if (nt >= (S.useTickT || 0)) { S.useTickT = nt + (us.k === 'plant' ? 500 : 800); (us.k === 'plant' ? audio.plantTick : audio.defuseTick)(null); } } else S.useTickT = 0;
   if (us) { $('#useBar div').style.width = (us.p * 100) + '%'; $('#useBar span').textContent = us.k === 'plant' ? 'Залагане на бомбата…' : 'Обезвреждане…'; }
   let hint = '';
   const planted = s.bomb && s.bomb.st === 'planted';

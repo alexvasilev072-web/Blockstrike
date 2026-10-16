@@ -138,3 +138,12 @@ button.danger { border-color: #a04444; background: #4a2020; } button.danger:hove
 #lbBox { position: absolute; top: 14px; right: 14px; width: 260px; background: rgba(10,13,18,.6); border: 2px solid #2f3a4c; padding: 6px 10px; font-size: 14px; }
 #lbBox h4 { margin: 0 0 4px; color: #ffb066; } #lbList div { display: flex; justify-content: space-between; gap: 8px; } #lbList .me { color: #ffe08a; } #lbList .dim { color: #7d8aa0; }
 #hud.run #killfeed { top: 160px; }
+
+#heroList { display: flex; flex-direction: column; gap: 6px; }
+#heroList button { text-align: left; padding: 9px 12px; display: flex; flex-direction: column; gap: 2px; } #heroList button span { font-size: 12px; opacity: .75; font-weight: 400; }
+#heroList button.on { background: #e0701a; border-color: #ffb066; }
+#heroPreview { width: 100%; max-width: 420px; background: radial-gradient(circle at 50% 45%, #3a4660, #12161e); border: 2px solid #3a4558; display: block; margin-bottom: 10px; }
+#heroTeam { gap: 8px; align-items: center; } #heroTeam button.on { background: #2a3445; border-color: #ffb066; }
+
+.botdiff { margin-left: 8px; font-size: 11px; padding: 1px 6px; border: 1px solid #556; opacity: .9; } .d-easy { color: #8be28b; } .d-medium { color: #ffd34d; } .d-hard { color: #ff9a4d; } .d-expert { color: #ff5a5a; border-color: #ff5a5a; }
+.rmBot { margin-left: 6px; padding: 0 6px; font-size: 12px; } #botDiff { background: #1b2230; color: #e8edf5; border: 1px solid #46546b; padding: 6px; }

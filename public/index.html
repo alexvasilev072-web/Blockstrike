@@ -24,6 +24,7 @@
     </div>
     <div class="row">
       <button class="skinsOpen grow">Скинове</button>
+      <button class="heroOpen grow">Герои</button>
       <button class="settingsOpen grow">Настройки</button>
     </div>
     <div id="joinErr" class="err"></div>
@@ -35,12 +36,13 @@
   <div class="card wide">
     <div class="row between">
       <div class="row"><button id="backBtn">← Назад</button><h2>Стая <b id="lobCode"></b></h2></div>
-      <div class="row"><button class="skinsOpen">Скинове</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
+      <div class="row"><button class="skinsOpen">Скинове</button><button class="heroOpen">Герои</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
     <div class="row modes"><span class="sub" style="margin:0">Режим:</span><button class="modeBtn" data-mode="comp">Състезателен</button><button class="modeBtn" data-mode="parkour">Parkour</button><button class="modeBtn" data-mode="surf">Surf</button></div>
+    <div id="botBar" class="row modes"><span class="sub" style="margin:0">Ботове – трудност:</span><select id="botDiff"><option value="easy">Лесен</option><option value="medium" selected>Среден</option><option value="hard">Труден</option><option value="expert">Експерт (като опитен CS играч)</option></select><button id="botFill">Запълни с ботове</button><button id="botClear">Махни ботовете</button></div>
     <div class="teams">
-      <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><button data-team="att">Премини тук</button></div>
-      <div class="team def"><h3>Защитници</h3><ul id="listDef"></ul><button data-team="def">Премини тук</button></div>
+      <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><div class="row"><button data-team="att">Премини тук</button><button class="addBot" data-team="att">+ Бот</button></div></div>
+      <div class="team def"><h3>Защитници</h3><ul id="listDef"></ul><div class="row"><button data-team="def">Премини тук</button><button class="addBot" data-team="def">+ Бот</button></div></div>
     </div>
     <div id="runPlayers" style="display:none"></div>
     <div class="row">
@@ -91,6 +93,20 @@
 </div>
 
 <!-- Скинове -->
+<div id="heroes" class="screen hidden" style="z-index:30">
+  <div class="card wide">
+    <div class="row between"><h2>Герои</h2><button id="heroesClose">Готово</button></div>
+    <div class="skinwrap">
+      <div id="heroList"></div>
+      <div class="skinside">
+        <canvas id="heroPreview" width="420" height="420"></canvas>
+        <div id="heroTeam" class="row"><span class="sub" style="margin:0">Цветове на отбор:</span><button data-t="att">Нападатели</button><button data-t="def">Защитници</button></div>
+      </div>
+    </div>
+    <p class="sub">Героят е само външен вид – хитбоксът е един и същ за всички. Другите играчи те виждат с избрания герой.</p>
+  </div>
+</div>
+
 <div id="skins" class="screen hidden" style="z-index:30">
   <div class="card wide">
     <div class="row between"><h2>Скинове</h2><button id="skinsClose">Готово</button></div>
@@ -158,6 +174,7 @@
       <div id="pauseNote"></div>
       <button class="settingsOpen">Настройки</button>
       <button class="skinsOpen">Скинове</button>
+      <button class="heroOpen">Герои</button>
       <button id="pBoard">Резултати</button>
       <button id="pLobby">Към лобито (домакин)</button>
       <button id="pLeave" class="danger">Излез в главното меню</button>
