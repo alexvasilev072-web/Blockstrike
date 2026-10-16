@@ -40,7 +40,7 @@ for (const f of fs.readdirSync(path.join(ROOT, 'server/maps')).sort()) {
       if (!cpOf.has(k) && world.get(nx, ny, nz) === BLOCK.checkpoint) { cpOf.set(k, id); q.push([nx, ny, nz]); }
     }
   }
-  MAPS[json.id] = { json, world, mode, cpOf, cpCount, bsp };
+  MAPS[json.id] = { json, world, mode, cpOf, cpCount, bsp, max: Math.max(2, Math.min(CFG.MAX_PLAYERS, json.maxPlayers || CFG.MAX_PLAYERS)) };
 }
 
 // ---------- HTTP ----------
@@ -131,7 +131,7 @@ class Room {
   lobbyInfo() {
     return {
       code: this.code, hostId: this.hostId, mapId: this.mapId, phase: this.phase,
-      mode: this.mode, maps: Object.values(MAPS).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0)).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description, mode: m.mode, level: m.json.level || '' })),
+      mode: this.mode, maps: Object.values(MAPS).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0)).map(m => ({ id: m.json.id, name: m.json.name, desc: m.json.description, mode: m.mode, level: m.json.level || '', max: m.max, big: !!m.json.big })),
       players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, team: p.team, bot: !!p.bot, diff: p.bot ? p.diff : undefined })),
       sc: this.sc, round: this.round,
     };
@@ -168,7 +168,7 @@ class Room {
 
   // ----- ботове (само в състезателния режим, само в лобито) -----
   addBot(team, diff) {
-    if (this.phase !== 'lobby' || this.run || this.players.size >= CFG.MAX_PLAYERS || !DIFFS[diff]) return null;
+    if (this.phase !== 'lobby' || this.run || this.players.size >= this.map.max || !DIFFS[diff]) return null;
     const used = new Set([...this.players.values()].map(q => q.name));
     const base = BOT_NAMES.filter(n => !used.has(n + ' (бот)')); const nm = (base.length ? base[Math.floor(Math.random() * base.length)] : 'Бот' + (this.botSeq + 1)) + ' (бот)';
     const id = 'bot' + (++this.botSeq) + '_' + Math.random().toString(36).slice(2, 6);
@@ -333,7 +333,7 @@ class Room {
       p.lastState = now; p.spd = 0; p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
       this.started[p.team]++;
     }
-    this.planBots();
+    this.planBots(); this.botIntel = null;
     for (const p of this.players.values()) if (p.bot) { p.using = false; p.bot.reset(); }
     // бомбата получава случаен нападател
     const atts = [...this.players.values()].filter(p => p.team === 'att');
@@ -969,7 +969,7 @@ io.on('connection', socket => {
     if (!code) code = makeCode();
     let r = rooms.get(code);
     if (!r) { r = new Room(code); rooms.set(code, r); }
-    if (r.players.size >= CFG.MAX_PLAYERS) return cb({ ok: false, error: 'Стаята е пълна' });
+    if (r.players.size >= CFG.MAX_PLAYERS || (r.phase !== 'lobby' && r.mode === 'comp' && r.players.size >= r.map.max)) return cb({ ok: false, error: 'Стаята е пълна' });
     room = r;
     p = r.addPlayer(socket, name);
     cb({ ok: true, id: p.id, code });
@@ -1007,6 +1007,7 @@ io.on('connection', socket => {
   });
   socket.on('start', () => {
     if (!room || room.hostId !== p.id || room.phase !== 'lobby') return;
+    if (room.mode === 'comp' && room.players.size > room.map.max) return socket.emit('err', `Тази карта е за най-много ${room.map.max} играчи (${room.map.max / 2} срещу ${room.map.max / 2}). Избери по-голяма карта или махни играчи/ботове.`);
     room.startMatch();
   });
   socket.on('loadout', c => {

@@ -170,3 +170,4 @@ body.real #realVig { display: block; }
 #talkHud div { background: rgba(0,0,0,.55); padding: 2px 8px; border-left: 3px solid #7cf08a; }
 .spk { color: #7cf08a; margin-left: 4px; } #board button.vm { pointer-events: auto; padding: 0 6px; font-size: 13px; margin-left: 6px; }
 #board.pin { pointer-events: auto; }
+#startBtn.over { opacity: .55; outline: 2px solid #ff5a4a; }

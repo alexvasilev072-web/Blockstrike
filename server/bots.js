@@ -190,6 +190,7 @@ export class Bot {
         }
         if (m.pos) { const dt = Math.max(0.03, (now - m.seen) / 1000); m.vx = (e.x - m.pos[0]) / dt * 0.5 + m.vx * 0.5; m.vz = (e.z - m.pos[2]) / dt * 0.5 + m.vz * 0.5; }
         m.pos = [e.x, e.y, e.z]; m.seen = now; m.visible = true; m.wasVisible = true; m.heard = false; m.vis = part;
+        this.shareIntel(e, now);
       } else if (m) m.wasVisible = m.visible = false;
       // чуване: бегъщи/скачащи врагове (не клякащи и не вървящи тихо)
       if (!part && !(e.cr || e.wk) && e.spd > 2.6 && d.hear > 0) {
@@ -207,6 +208,12 @@ export class Bot {
     }
     const prev = this.target; this.target = best ? best.e : null;
     if (this.target && (!prev || prev.id !== this.target.id)) this.settle = 0.22;
+  }
+  // защитниците си споделят къде е нападението: другите се прегрупират към този обект (като в CS)
+  shareIntel(e, now) {
+    if (this.p.team !== 'def') return; const j = this.room.map.json; let best = null, bd = 1e9;
+    for (const [name, [x1, z1, x2, z2]] of Object.entries(j.sites)) { const d = Math.hypot(e.x - (x1 + x2 + 1) / 2, e.z - (z1 + z2 + 1) / 2); if (d < bd) { bd = d; best = name; } }
+    if (best && bd < 34) this.room.botIntel = { site: best, t: now };
   }
   onHurt(att, dmg) {
     const now = Date.now(), d = this.d; if (!att || !att.alive || att.team === this.p.team) return;
@@ -475,7 +482,9 @@ export class Bot {
       this.moveTo(sp.x, sp.y, sp.z, now, 0.8, threat && d.aggro < 0.6 ? 'walk' : null);
     } else {
       if (r.bomb && !r.bomb.exploded && !r.bomb.defused) return this.defuse(now, threat);
-      const name = r.botPlan?.def?.[p.id] || names[0];
+      let name = r.botPlan?.def?.[p.id] || names[0];
+      const intel = r.botIntel;
+      if (intel && now - intel.t < 30000 && intel.site !== name && now - intel.t > 1500 / (1 + d.aggro) && names.includes(intel.site) && this.rolePhase < 0.35 + 0.65 * (this.diffId === 'easy' ? 0.3 : 1)) name = intel.site;       // прегрупиране
       const sp = this.spot?.site === name ? this.spot : (this.spot = this.pickSpot(name, 4));
       if (!sp) return;
       const near = Math.hypot(sp.x - p.x, sp.z - p.z) < 1.0;

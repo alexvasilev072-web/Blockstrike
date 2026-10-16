@@ -65,7 +65,7 @@ $('#room').onkeydown = e => { if (e.code === 'Enter' || e.code === 'NumpadEnter'
 $('#copyLink').onclick = () => { navigator.clipboard?.writeText(location.href); $('#copyLink').textContent = 'Копирано!'; setTimeout(() => $('#copyLink').textContent = 'Копирай линк', 1500); };
 document.querySelectorAll('[data-team]:not(.addBot)').forEach(b => b.onclick = () => socket.emit('team', b.dataset.team));
 document.querySelectorAll('.addBot').forEach(b => b.onclick = () => socket.emit('addBot', { team: b.dataset.team, diff: $('#botDiff').value }));
-$('#botFill').onclick = () => { const L = S.lobby; if (!L) return; const cnt = { att: 0, def: 0 }; L.players.forEach(p => cnt[p.team]++); let n = 10 - L.players.length; while (n-- > 0) { const t = cnt.att <= cnt.def ? 'att' : 'def'; cnt[t]++; socket.emit('addBot', { team: t, diff: $('#botDiff').value }); } };
+$('#botFill').onclick = () => { const L = S.lobby; if (!L) return; const cnt = { att: 0, def: 0 }; L.players.forEach(p => cnt[p.team]++); let n = (L.maps.find(m => m.id === L.mapId)?.max || 10) - L.players.length; while (n-- > 0) { const t = cnt.att <= cnt.def ? 'att' : 'def'; cnt[t]++; socket.emit('addBot', { team: t, diff: $('#botDiff').value }); } };
 $('#botClear').onclick = () => (S.lobby?.players || []).filter(p => p.bot).forEach(p => socket.emit('removeBot', p.id));
 $('#startBtn').onclick = () => { audio.init(); socket.emit('start'); };
 $('#mapSel').onchange = e => socket.emit('setMap', e.target.value);
@@ -115,21 +115,24 @@ function onLobby(L) {
       .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${p.bot ? '🤖 ' : ''}${esc(p.name)}${voice.isTalking(p.id) ? '<span class="spk">🔊</span>' : ''} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}${p.bot ? `<span class="botdiff d-${p.diff}">${{ easy: 'лесен', medium: 'среден', hard: 'труден', expert: 'експерт' }[p.diff] || ''}</span>${L.hostId === S.id ? `<button class="rmBot" data-id="${p.id}" title="Махни бота">✕</button>` : ''}` : ''}</li>`).join('');
   }
   document.querySelectorAll('.rmBot').forEach(b => b.onclick = () => socket.emit('removeBot', b.dataset.id));
-  const hostNow = L.hostId === S.id, canBots = hostNow && L.mode === 'comp' && L.players.length < 10;
+  const curMap = L.maps.find(m => m.id === L.mapId), maxP = L.mode === 'comp' ? (curMap?.max || 10) : 10, over = L.mode === 'comp' && L.players.length > maxP;
+  const hostNow = L.hostId === S.id, canBots = hostNow && L.mode === 'comp' && L.players.length < maxP;
   document.querySelectorAll('.addBot').forEach(b => b.disabled = !canBots);
   $('#botBar').style.display = L.mode === 'comp' && hostNow ? '' : 'none'; $('#botFill').disabled = !canBots; $('#botClear').disabled = !L.players.some(p => p.bot);
   document.querySelectorAll('.addBot').forEach(b => b.style.display = L.mode === 'comp' && hostNow ? '' : 'none');
   const maps = L.maps.filter(m => m.mode === L.mode), sel = $('#mapSel'), key = maps.map(m => m.id).join(',');
-  if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join(''); sel.dataset.key = key; }
+  if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}${L.mode === 'comp' && m.max <= 4 ? ' (2 срещу 2)' : m.big ? ' (5 срещу 5)' : ''}</option>`).join(''); sel.dataset.key = key; }
   sel.value = L.mapId; sel.disabled = L.hostId !== S.id;
   document.querySelectorAll('.modeBtn').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = L.hostId !== S.id; });
   $('.teams').style.display = L.mode === 'comp' ? '' : 'none';
   $('#runPlayers').style.display = L.mode === 'comp' ? 'none' : '';
   $('#runPlayers').innerHTML = L.players.map(p => `<span class="chip ${p.id === S.id ? 'me' : ''}">${esc(p.name)}${p.id === L.hostId ? ' ★' : ''}</span>`).join('');
-  $('#mapDesc').textContent = L.maps.find(m => m.id === L.mapId)?.desc || '';
+  $('#mapDesc').textContent = (curMap?.desc || '') + (L.mode === 'comp' && curMap ? ` • Играчи: до ${curMap.max} (${curMap.max / 2} срещу ${curMap.max / 2})` : '');
+  $('#startBtn').classList.toggle('over', over); $('#startBtn').title = over ? `Тази карта е за най-много ${maxP} играчи` : '';
   const host = L.hostId === S.id;
   $('#startBtn').style.display = host ? '' : 'none';
   $('#lobHint').textContent = host ? 'Ти си домакин – избери карта и натисни „Старт“. Можеш да стартираш и сам за проба.' : 'Изчакване домакинът да избере карта и да стартира играта…';
+  if (over && L.hostId === S.id) $('#lobHint').textContent = `Има ${L.players.length} играчи, а тази карта е за най-много ${maxP}. Махни ботове или избери по-голяма карта.`;
   S.phase = L.phase;
   if (L.phase === 'lobby' && S.inGame) leaveGame();
 }

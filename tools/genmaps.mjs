@@ -78,7 +78,7 @@ function mine() {
 
   const sp = (xs, zs) => xs.map((x, i) => [x, zs[i]]);
   return {
-    id: 'mine', name: 'Миньорска шахта',
+    id: 'mine', name: 'Миньорска шахта', maxPlayers: 4,
     description: 'Тесни тъмни тунели, релси и вагонетки. Факлите са единствената светлина.',
     size: [56, 10, 56],
     env: { sky: '#050608', fogColor: '#050608', fog: [4, 38], ambient: 0.06, sun: 0, ground: '#050505' },
@@ -140,7 +140,7 @@ function snow() {
   for (const [x, z] of [[14, 26], [58, 26], [24, 12], [47, 12], [32, 20], [38, 20], [20, 60], [50, 60], [34, 50], [36, 50]]) { m.fill('stone', x, 1, z, x + 1, 2, z + 1); m.fill('snow', x, 3, z, x + 1, 3, z + 1); }
   const sp = (xs, zs) => xs.map((x, i) => [x, zs[i]]);
   return {
-    id: 'snow', name: 'Снежна база',
+    id: 'snow', maxPlayers: 4, name: 'Снежна база',
     description: 'Открит терен за снайперисти: езеро от лед, хребети, бункери и наблюдателници.',
     size: [72, 14, 72],
     env: { sky: '#b8d4f0', fogColor: '#d3e3f3', fog: [70, 180], ambient: 0.38, sun: 1, ground: '#e6eef7' },
@@ -207,7 +207,7 @@ function harbor() {
   for (const [x, z] of [[13, 19], [13, 40], [39, 19], [39, 40], [43, 19], [43, 40], [70, 25], [70, 50]]) { m.fill('metal', x, 2, z, x, 5, z); m.set('lamp', x, 6, z); }
   const sp = (xs, zs) => xs.map((x, i) => [x, zs[i], 2]);
   return {
-    id: 'harbor', name: 'Пристанище',
+    id: 'harbor', maxPlayers: 4, name: 'Пристанище',
     description: 'Контейнери, кранове и кейове над водата. Складът е на североизток.',
     size: [72, 15, 56],
     env: { sky: '#79b4e8', fogColor: '#b4d4ee', fog: [60, 170], ambient: 0.32, sun: 1, ground: '#2f6aa0' },
