@@ -1,11 +1,18 @@
+# Render Blueprint: BlockStrike във Франкфурт (безплатен план).
+# Регионът на съществуваща услуга не се сменя – създай НОВА услуга: Render → New → Blueprint → това репо.
 services:
   - type: web
-    name: blockstrike
+    name: blockstrike-eu
     runtime: node
+    region: frankfurt
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install          # (npm start е "node server/index.js", слуша process.env.PORT)
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: TICK_MS                    # честота на симулацията: 33 мс ≈ 30 Hz (виж README → Производителност)
+        value: 33
+      # По желание за гласовия чат през по-трудни мрежи (TURN сървър) – добави ги ръчно в Render → Environment, ако имаш такъв:
+      #   TURN_URLS (напр. turn:хост:3478), TURN_USERNAME, TURN_CREDENTIAL
