@@ -36,7 +36,7 @@ const S = {
   keys: {}, locked: false, scoped: false,
   // стрелба
   firing: false, clicked: false, rclick: false, nextFire: 0, shotIdx: 0, lastShotT: 0, punch: [0, 0], punchT: [0, 0],
-  buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false, tick: 0, boardPinned: false, everLocked: false,
+  buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false, tick: 0, specCr: 0, specSpeed: 0, specG: true, specLast: null, vmSpec: null, boardPinned: false, everLocked: false,
   mode: 'comp', wjT: 0, surfing: false, platform: null, groundN: null, jumped: false, platDefs: [], platsNow: [], simT: 0,
 };
 window.__S = S;
@@ -303,7 +303,7 @@ function makeModel(p) {
   const shadow = new THREE.Mesh(SHADOW_GEO, SHADOW_MAT);
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.renderOrder = 1;
   rig.add(head, body, legL, legR, aim, bomb); g.add(rig, shadow);
-  const m = { shX: sh.x, char, tick: c.tick, g, rig, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
+  const m = { shX: sh.x, shY: sh.y, char, tick: c.tick, g, rig, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
   scene.add(g); return m;
 }
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _fwd = new THREE.Vector3(0, 0, -1);
@@ -347,6 +347,12 @@ const surfaceAt = (x, y, z) => {
 
 // махане на модела на играч: името (CanvasTexture) се освобождава, геометриите са общи и остават
 function disposeModel(m) { scene.remove(m.g); m.g.traverse(o => { if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); } }); }
+// накъде да падне трупът: напред/назад според свободното място (0 = свлича се на място)
+function pickFall(pose) {
+  const w = S.world; if (!w) return 1; const fx = -Math.sin(pose.yw), fz = -Math.cos(pose.yw);
+  const free = s => { for (let d = 0.5; d <= 1.9; d += 0.4) { const x = pose.x + fx * d * s, z = pose.z + fz * d * s; for (const dy of [0.25, 0.9]) if (w.solid(Math.floor(x), Math.floor(pose.y + dy), Math.floor(z))) return false; } return true; };
+  return free(1) ? 1 : free(-1) ? -1 : 0;
+}
 function updateModels(dt) {
   const snap = S.snap; if (!snap) return;
   const rt = serverNow() - 100, ids = new Set();
@@ -356,7 +362,7 @@ function updateModels(dt) {
     let m = models.get(p.i);
     if (!m || m.team !== p.tm || m.char !== charOf(p.i, p.tm)) { if (m) disposeModel(m); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
     const pose = poseOf(p.i, rt) || p;
-    m.g.visible = !(S.specId === p.i && !alive());
+    m.g.visible = !(S.specId === p.i && !alive()) && !p.po;           // тялото на поетия бот се скрива (на негово място е играчът)
     m.g.position.set(pose.x, pose.y, pose.z);
     m.g.rotation.y = pose.yw;
     m.head.rotation.x = pose.pt * 0.8; m.aim.rotation.x = pose.pt * 0.95;
@@ -364,7 +370,7 @@ function updateModels(dt) {
     m.lastX = pose.x; m.lastZ = pose.z;
     m.phase += Math.min(sp, 8) * dt * 2.2;
     const sw = p.al ? Math.sin(m.phase) * Math.min(1, sp / 4) * 0.8 : 0;
-    { const cr = m.crAmt, kl = Math.min(0, sw) * 1.5 - Math.abs(sw) * 0.12, kr = Math.min(0, -sw) * 1.5 - Math.abs(sw) * 0.12;
+    { const cr = Math.max(m.crAmt, m.lieC || 0), kl = Math.min(0, sw) * 1.5 - Math.abs(sw) * 0.12, kr = Math.min(0, -sw) * 1.5 - Math.abs(sw) * 0.12;
       m.legL.rotation.x = sw * (1 - cr) + cr; m.legR.rotation.x = -sw * (1 - cr) + cr;
       m.legL.userData.shin.rotation.x = kl * (1 - cr) - 2.0 * cr; m.legR.userData.shin.rotation.x = kr * (1 - cr) - 2.0 * cr; m.rig.position.y = -0.39 * cr; }
     // звуци на другите играчи: стъпки (не се чуват при Shift/клякане), скок, приземяване
@@ -379,9 +385,15 @@ function updateModels(dt) {
     m.crAmt += ((pose.cr ? 1 : 0) - m.crAmt) * Math.min(1, dt * 12);
     setGun(m, p.w, S.cosById.get(p.i), p.tm); poseArms(m);
     { const sw = (Date.now() - m.swingT) / 380; if (sw >= 0 && sw < 1) { m.aim.rotation.x += -0.9 * Math.sin(sw * Math.PI); m.aim.rotation.y = 0.5 * Math.sin(sw * Math.PI) * (m.swingKind === 'r' ? 0 : 1); } else m.aim.rotation.y = 0; }
+    // смърт: пада напред/назад там, където има място (иначе се свлича на място) – така не влиза в стени и щайги; ръцете висят, оръжието не се вижда
+    if (!p.al && m.lieDir === undefined) m.lieDir = pickFall(pose); else if (p.al) m.lieDir = undefined;
     m.lie += ((p.al ? 0 : 1) - m.lie) * Math.min(1, dt * 8);
-    m.g.rotation.order = 'YXZ'; m.g.rotation.x = -m.lie * Math.PI / 2;
-        m.g.position.y += m.lie * 0.3;
+    const L = m.lie, dir = m.lieDir ?? 1; m.g.rotation.order = 'YXZ';
+    m.g.rotation.x = dir === 0 ? -L * 0.28 : dir > 0 ? -L * Math.PI / 2 : L * Math.PI / 2;
+    m.g.position.y += dir === 0 ? 0 : L * 0.3;
+    m.lieC = dir === 0 ? L : 0;
+    m.gunHolder.visible = L < 0.08; m.head.rotation.x *= (1 - L); m.aim.rotation.x *= (1 - L);
+    if (L > 0.08) { _b.set(m.shX + 0.04, m.shY - 0.6, -0.04); setArm(m.armR, m.handR, _a.set(m.shX, 0, 0), _b, 1); _b.set(-m.shX - 0.04, m.shY - 0.6, -0.04); setArm(m.armL, m.handL, _a.set(-m.shX, 0, 0), _b, -1); }
     m.bomb.visible = !!p.bm && !!p.al;
     if (m.flash) m.flash.visible = Date.now() < m.flashUntil;
     // тиктакащ звук при залагане/обезвреждане от други играчи
@@ -577,6 +589,7 @@ socket.on('round', async r => {
   else toast(`Рунд ${r.n} — натисни B за магазина`, 3000);
 });
 socket.on('spawn', s => {
+  if (s.takeover) { toast('Поемаш управлението на ' + s.takeover, 2500); S.vmSpec = null; S.vmReset = true; S.vmWeapon = null; }
   S.vmReset = !s.quiet; S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; S.yaw = s.yw; S.pitch = 0;
   S.onGround = false; S.wasGround = true; S.platform = null; S.groundN = null; S.wjT = 0; S.surfing = false; S.inWater = false;
   if (s.why && WHY[s.why]) toast(WHY[s.why], 1600);
@@ -599,7 +612,8 @@ socket.on('me', m => { const mag = S.me.mag, same = S.me.w === m.w; S.me = m; if
 socket.on('cos', ({ i, cos }) => S.cosById.set(i, cos));
 socket.on('cosLeave', id => S.cosById.delete(id));
 socket.on('shot', s => {
-  const mine = s.i === S.id;
+  const spec = !alive() && s.i === S.specId, mine = s.i === S.id || spec;
+  if (spec) { vmod.fire(Date.now()); audio.shot(s.w, null); }
   let a = s.o;
   if (mine) {
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), r = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -613,8 +627,8 @@ socket.on('shot', s => {
     if (!s.hit) { const dx = e[0] - a[0], dy = e[1] - a[1], dz = e[2] - a[2], L = Math.hypot(dx, dy, dz) || 1; addDecal(e, [dx / L, dy / L, dz / L]); }
   }
 });
-socket.on('knife', k => { const mm = models.get(k.i); if (mm) { mm.swingT = Date.now(); mm.swingKind = k.k; } if (k.i !== S.id) { const p = S.snap?.pl.find(q => q.i === k.i); audio.knife(k.k, k.hit, p ? [p.x, p.y + 1, p.z] : null); } });
-socket.on('reload', r => { if (r.i === S.id) { audio.reload(r.w, null); vmod.reload(r.t, Date.now()); }  else { const p = S.snap?.pl.find(q => q.i === r.i); if (p) audio.reload(r.w, [p.x, p.y + 1, p.z]); } });
+socket.on('knife', k => { if (!alive() && k.i === S.specId) vmod.attack(k.k, Date.now()); const mm = models.get(k.i); if (mm) { mm.swingT = Date.now(); mm.swingKind = k.k; } if (k.i !== S.id) { const p = S.snap?.pl.find(q => q.i === k.i); audio.knife(k.k, k.hit, p ? [p.x, p.y + 1, p.z] : null); } });
+socket.on('reload', r => { if (r.i === S.id || (!alive() && r.i === S.specId)) { audio.reload(r.w, null); vmod.reload(r.t, Date.now()); }  else { const p = S.snap?.pl.find(q => q.i === r.i); if (p) audio.reload(r.w, [p.x, p.y + 1, p.z]); } });
 socket.on('equip', e => { if (e.i !== S.id) { const p = S.snap?.pl.find(q => q.i === e.i); if (p) audio.equip([p.x, p.y + 1, p.z]); } });
 socket.on('throw', t => { const p = S.snap?.pl.find(q => q.i === t.i); audio.nadeThrow(t.i === S.id ? null : p ? [p.x, p.y + 1.2, p.z] : null); });
 socket.on('hit', h => { const el = $('#hitmark'); el.className = 'on' + (h.hd ? ' head' : ''); void el.offsetWidth; requestAnimationFrame(() => el.className = h.hd ? 'head' : ''); audio.hit(h.hd); });
@@ -754,7 +768,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
   if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
-  if (e.code === 'KeyE') socket.emit('use', true);
+  if (e.code === 'KeyE') { if (!alive() && S.mode === 'comp' && S.specId && String(S.specId).startsWith('bot')) socket.emit('takeover', S.specId); else socket.emit('use', true); }
   if (e.code === 'KeyG' && alive() && S.me.inv.bomb) socket.emit('dropbomb');
   if (e.code === 'KeyF' && alive() && !S.me.rl && S.phase !== 'lobby') vmod.inspect(Date.now());
   if (e.code.startsWith('Control') || e.code === 'KeyC') e.preventDefault();
@@ -921,18 +935,19 @@ function tryFire(now) {
 }
 
 // ================= Наблюдение =================
+function setSpec(id) { if (S.specId !== id) { S.specId = id; socket.emit('spec', id); } }
 function cycleSpec() {
   const mates = S.snap?.pl.filter(p => p.al && p.tm === S.me.tm && p.i !== S.id) || [];
-  if (!mates.length) { S.specId = null; return; }
+  if (!mates.length) { setSpec(null); return; }
   const i = mates.findIndex(p => p.i === S.specId);
-  S.specId = mates[(i + 1) % mates.length].i;
+  setSpec(mates[(i + 1) % mates.length].i);
 }
 
 // ================= Главен цикъл =================
 const _lf = new THREE.Vector3();
 // ---- панел за производителност (F3): FPS, време на кадър по части, draw calls, триъгълници ----
 renderer.info.autoReset = false;
-const perf = { on: false, el: null, sum: [0, 0, 0, 0], max: 0, n: 0, t: 0 };
+const perf = { raf: 0, on: false, el: null, sum: [0, 0, 0, 0], max: 0, n: 0, t: 0 };
 addEventListener('keydown', e => {
   if (e.code !== 'F3') return; e.preventDefault(); perf.on = !perf.on;
   if (!perf.el) { perf.el = document.createElement('pre'); perf.el.style.cssText = 'position:fixed;left:8px;top:150px;z-index:20;margin:0;padding:6px 8px;background:rgba(0,0,0,.7);color:#9dffb0;font:12px/1.35 Consolas,monospace;pointer-events:none;white-space:pre'; document.body.appendChild(perf.el); }
@@ -942,7 +957,7 @@ function perfReport(dt) {
   if (!perf.on) return; perf.t += dt; if (perf.t < 0.5) return;
   const n = Math.max(1, perf.n), a = perf.sum.map(v => (v / n).toFixed(2)), i = renderer.info;
   perf.el.textContent = [
-    `FPS ${fpsShown}   кадър (CPU) ${a[3]} мс  (макс ${perf.max.toFixed(1)})`,
+    `FPS ${fpsShown}   кадър (CPU) ${a[3]} мс  (макс ${perf.max.toFixed(1)})   браузърът дава кадри на ≈ ${perf.raf ? Math.round(1000 / perf.raf) : '?'} Hz (лимит в играта: ${settings.fpsLimit || 'няма'})`,
     `  логика+модели ${a[0]} мс   сцена ${a[1]} мс   оръжие+HUD ${a[2]} мс`,
     `draw calls ${i.render.calls}   триъгълници ${(i.render.triangles / 1000).toFixed(1)}k   точки ${i.render.points}`,
     `геометрии ${i.memory.geometries}   текстури ${i.memory.textures}   чънкове ${worldR.chunks.size}   играчи ${models.size}   pixelRatio ${pixelRatio.toFixed(2)}`,
@@ -950,9 +965,10 @@ function perfReport(dt) {
   perf.sum = [0, 0, 0, 0]; perf.max = 0; perf.n = 0; perf.t = 0;
 }
 let last = performance.now(), hudT = 0, fpsAcc = 0, fpsN = 0, fpsShown = 0;
-let lastRender = 0;
+let lastRender = 0, lastRaf = 0;
 function frame(nowMs) {
   requestAnimationFrame(frame);
+  if (lastRaf) { const d = nowMs - lastRaf; if (d > 0 && d < 200) perf.raf = perf.raf ? perf.raf * 0.97 + d * 0.03 : d; } lastRaf = nowMs;       // реалният интервал между кадрите на браузъра (= честотата на екрана, когато няма лимит)
   if (settings.fpsLimit && nowMs - lastRender < 1000 / settings.fpsLimit - 0.6) return;   // лимит на FPS (0 = без лимит)
   lastRender = nowMs;
   const dt = Math.min(0.05, Math.max(0, (nowMs - last) / 1000)); last = nowMs;
@@ -985,19 +1001,28 @@ function frame(nowMs) {
   if (isAlive) {
     cp = [S.prev.x + (S.pos.x - S.prev.x) * al, S.prev.y + (S.pos.y - S.prev.y) * al + eyeY, S.prev.z + (S.pos.z - S.prev.z) * al];
     cyaw = S.yaw + S.punch[0]; cpitch = S.pitch + S.punch[1];
-    S.specId = null;
+    if (S.specId) setSpec(null);
+    if (S.vmSpec) { S.vmSpec = null; S.vmReset = true; }
   } else {
     if (!S.specId || !S.snap?.pl.find(p => p.i === S.specId && p.al)) cycleSpec();
     const pose = S.specId ? poseOf(S.specId, serverNow() - 100) : null;
-    if (pose) { cp = [pose.x, pose.y + (pose.cr ? MOVE.EYE_CROUCH : MOVE.EYE_STAND), pose.z]; cyaw = pose.yw; cpitch = pose.pt; }
-    else { cp = [S.pos.x, S.pos.y + 1.0, S.pos.z]; cyaw = S.yaw; cpitch = S.pitch; }
+    if (pose) {
+      // гледаме през очите на наблюдавания: плавно клякане, скорост за люлеенето на оръжието
+      S.specCr += ((pose.cr ? 1 : 0) - S.specCr) * Math.min(1, dt * 12);
+      const ey = MOVE.EYE_STAND + (MOVE.EYE_CROUCH - MOVE.EYE_STAND) * (S.specCr * S.specCr * (3 - 2 * S.specCr));
+      cp = [pose.x, pose.y + ey, pose.z]; cyaw = pose.yw; cpitch = pose.pt;
+      if (S.specLast) { const dd = Math.hypot(pose.x - S.specLast[0], pose.z - S.specLast[1]); S.specSpeed += (Math.min(9, dd / Math.max(dt, 0.001)) - S.specSpeed) * Math.min(1, dt * 8); } S.specLast = [pose.x, pose.z];
+      S.specG = !!pose.g;
+    } else { cp = [S.pos.x, S.pos.y + 1.0, S.pos.z]; cyaw = S.yaw; cpitch = S.pitch; S.specLast = null; }
   }
+  const specT = !isAlive && S.specId ? S.snap?.pl.find(q => q.i === S.specId && q.al) : null;
   if (dbg) { cp = [dbg.x, dbg.y, dbg.z]; cyaw = dbg.yaw; cpitch = dbg.pitch; }
   const sh = S.shake || 0; S.shake = Math.max(0, sh - dt * 0.8);
   camera.position.set(cp[0] + (Math.random() - .5) * sh, cp[1] + (Math.random() - .5) * sh, cp[2] + (Math.random() - .5) * sh);
   camera.rotation.set(cpitch, cyaw, 0); updateSky(dt);
   const spd3 = Math.hypot(S.vel.x, S.vel.y, S.vel.z), fast = clamp((spd3 - 12) / 40, 0, 1);
-  const targetFov = S.scoped && isAlive ? 22 : settings.fov + fast * 14;
+  const specScoped = !!(specT && specT.sc && specT.w === 'sniper');
+  const targetFov = (S.scoped && isAlive) || specScoped ? 22 : settings.fov + (isAlive ? fast * 14 : 0);
   audio.setWind(isAlive ? fast : 0);
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }
   const fwd = _lf.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -1006,11 +1031,13 @@ function frame(nowMs) {
   // viewmodel (отделна сцена, не влиза в стени)
   const myCos = S.cosById.get(S.id);
   if (isAlive && !S.debugVM && (S.vmWeapon !== S.me.w || S.vmReset || S.vmTeam !== S.me.tm)) { S.vmWeapon = S.me.w; S.vmReset = false; S.vmTeam = S.me.tm; vmod.setWeapon(S.me.w, myCos, S.me.tm, now); S.inspect = 0; }
-  vmod.visible = isAlive && !S.scoped && (!dbg || S.debugVM);
-  vmod.update(dt, now, { speed: S.speed, onGround: S.onGround, crouchAmt: S.crouchAmt, mdx: S.mdx, mdy: S.mdy });
+  // оръжие на наблюдавания играч/бот – както го вижда той
+  if (specT && !S.debugVM && (S.vmWeapon !== specT.w || S.vmSpec !== specT.i || S.vmTeam !== specT.tm)) { S.vmWeapon = specT.w; S.vmSpec = specT.i; S.vmTeam = specT.tm; vmod.setWeapon(specT.w, S.cosById.get(specT.i), specT.tm, now); }
+  vmod.visible = (isAlive ? !S.scoped : !!specT && !specScoped) && (!dbg || S.debugVM);
+  vmod.update(dt, now, isAlive || !specT ? { speed: S.speed, onGround: S.onGround, crouchAmt: S.crouchAmt, mdx: S.mdx, mdy: S.mdy } : { speed: S.specSpeed, onGround: S.specG, crouchAmt: S.specCr, mdx: 0, mdy: 0 });
   S.mdx = 0; S.mdy = 0;
-  $('#scope').style.display = S.scoped && isAlive ? 'block' : 'none';
-  $('#cross').style.display = S.scoped || !isAlive ? 'none' : '';
+  $('#scope').style.display = (S.scoped && isAlive) || specScoped ? 'block' : 'none';
+  $('#cross').style.display = (S.scoped && isAlive) || specScoped || (!isAlive && !specT) ? 'none' : '';
 
   const pf1 = performance.now();
   renderer.render(scene, camera);
@@ -1039,8 +1066,10 @@ function inSite() {
 }
 let crossGap = 6;
 function updateHud() {
-  const s = S.snap, m = S.me; if (!s) return;
-  if (S.mode !== 'comp') return updateRunHud(s, m);
+  const s = S.snap, m0 = S.me; if (!s) return;
+  if (S.mode !== 'comp') return updateRunHud(s, m0);
+  // мъртъв: HP/броня/патрони/оръжие са на наблюдавания (сървърът ги праща в me.sp)
+  const sp0 = !alive() && m0.sp ? m0.sp : null, m = sp0 ? { ...m0, hp: sp0.hp, ar: sp0.ar, w: sp0.w, mag: sp0.mag, res: sp0.res, rl: sp0.rl, kit: sp0.kit, inv: { ...m0.inv, bomb: sp0.bomb, g: sp0.g || {}, n: 0 } } : m0;
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
   $('#timer').textContent = s.bomb && s.bomb.st === 'planted' ? '💣' : fmt(s.tl);
   const buyLeft = m.bt;
@@ -1048,7 +1077,7 @@ function updateHud() {
   if (s.ph === 'live' && alive() && canBuy()) ph += `  •  Купуване (B): ${buyLeft}с`;
   $('#phaseTxt').textContent = ph;
   $('#phaseTxt').style.color = TEAM_COL[m.tm];
-  $('#money').textContent = m.mo;
+  $('#money').textContent = m0.mo;
   $('#hp b').textContent = Math.max(0, m.hp); $('#ar b').textContent = m.ar;
   const w = WEAPONS[m.w]; $('#wname').textContent = (w?.name || '') + (m.rl ? ' — презарежда…' : '');
   const noAmmo = m.w === 'knife';
@@ -1068,9 +1097,10 @@ function updateHud() {
     else if (s.ph === 'live' && m.tm === 'att' && m.inv.bomb && !s.bomb) hint = 'Носиш бомбата – иди на A или B';
     else if (s.ph === 'live' && m.tm === 'def' && planted && Math.hypot(S.pos.x - s.bomb.x, S.pos.z - s.bomb.z) < 2.4) hint = `Дръж E, за да обезвредиш бомбата (${m.kit ? '5' : '10'}с)`;
   }
+  if (!alive() && S.specId && String(S.specId).startsWith('bot') && s.ph === 'live') hint = 'Натисни E, за да поемеш управлението на бота';
   $('#hint').textContent = us ? '' : hint;
   const sp = $('#spec'); sp.classList.toggle('hidden', alive() || s.ph === 'lobby');
-  if (!alive()) { const t = s.pl.find(p => p.i === S.specId); sp.textContent = t ? `Наблюдаваш: ${t.n} (клик – следващ)` : 'Мъртъв си'; }
+  if (!alive()) { const t = s.pl.find(p => p.i === S.specId), bot = t && String(t.i).startsWith('bot'); sp.textContent = t ? `Наблюдаваш: ${t.n} (клик – следващ)` + (bot && s.ph === 'live' ? '  •  E – поеми управлението на бота' : '') : 'Мъртъв си'; }
   if (S.buyOpen) { if (!canBuy()) closeBuy(); else renderBuy(); }
   if (S.boardOpen || S.boardPinned) renderBoard(s);
   // динамичен мерник: колкото си по-неточен, толкова е по-широк

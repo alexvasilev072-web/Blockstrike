@@ -333,7 +333,7 @@ class Room {
       p.lastState = now; p.spd = 0; p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
       this.started[p.team]++;
     }
-    this.planBots(); this.botIntel = null;
+    this.planBots(); this.botIntel = null; for (const q of this.players.values()) q.possessedBy = null;
     for (const p of this.players.values()) if (p.bot) { p.using = false; p.bot.reset(); }
     // бомбата получава случаен нападател
     const atts = [...this.players.values()].filter(p => p.team === 'att');
@@ -383,6 +383,19 @@ class Room {
     if (now >= this.phaseEnd) return this.endRound('def', 'Времето изтече');
   }
 
+  // „Поеми бота“ (като в CS): мъртъв играч получава тялото, оръжията, здравето и позицията на жив бот от своя отбор; ботът остава мъртъв за този рунд
+  takeOver(p, id) {
+    const b = this.players.get(id), now = Date.now();
+    if (!b || !b.bot || b.team !== p.team || p.alive || !b.alive || this.phase !== 'live' || this.run || p.bot) return false;
+    p.alive = true; p.hp = b.hp; p.armor = b.armor; p.kit = b.kit; p.inv = JSON.parse(JSON.stringify(b.inv)); p.ammo = JSON.parse(JSON.stringify(b.ammo)); p.weapon = b.weapon;
+    p.reloadEnd = b.reloadEnd > now ? b.reloadEnd : 0; p.nextShot = now + 300; p.shotIdx = 0; p.lastShot = 0; p.using = false; p.useP = 0; p.useKind = null; p.useStart = null;
+    p.x = b.x; p.y = b.y; p.z = b.z; p.yw = b.yw; p.pt = b.pt; p.cr = false; p.g = true; p.wk = false; p.sc = false; p.spd = 0; p.peak = p.y; p.wasAir = false; p.lastTk = null;
+    p.hist = [{ t: now, x: p.x, y: p.y, z: p.z, cr: false }]; p.lastGround = { x: p.x, y: p.y, z: p.z }; p.lastState = now; p.respawnAt = now; p.specId = null;
+    b.alive = false; b.hp = 0; b.armor = 0; b.inv.bomb = false; b.using = false; b.useP = 0; b.possessedBy = p.id;
+    p.socket.emit('spawn', { x: p.x, y: p.y, z: p.z, yw: p.yw, quiet: true, takeover: b.name });
+    this.emit('msg', { t: 'takeover', by: p.name, bot: b.name });
+    return true;
+  }
   explodeBomb() {
     const b = this.bomb; b.exploded = true;
     this.emit('boom', { x: b.x, y: b.y + 0.5, z: b.z, r: CFG.BOMB_RADIUS, big: true });
@@ -925,7 +938,7 @@ class Room {
   broadcast(now) {
     const pl = [];
     for (const p of this.players.values())
-      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, rs: p.run ? p.run.st : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
+      pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, po: p.possessedBy ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, rs: p.run ? p.run.st : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
     const snap = {
       mode: this.mode, lb: this.run ? [...this.best.entries()].map(([id, b]) => [b.name, b.time, id]).sort((a, b) => a[1] - b[1]).slice(0, 10) : undefined,
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
@@ -942,6 +955,7 @@ class Room {
         hp: p.hp, ar: Math.round(p.armor), mo: p.money, w: p.weapon, inv: p.inv, kit: p.kit,
         mag: NADE[p.weapon] ? p.inv.g[NADE[p.weapon]] : am ? am.mag : 0, res: am && !NADE[p.weapon] ? am.res : 0,
         rl: p.reloadEnd > now ? 1 : 0, tm: p.team,
+        sp: (() => { if (p.alive || !p.specId) return null; const t = this.players.get(p.specId); if (!t || !t.alive || t.team !== p.team) return null; const ta = t.ammo[t.weapon]; return { id: t.id, hp: t.hp, ar: Math.round(t.armor), w: t.weapon, mag: NADE[t.weapon] ? t.inv.g[NADE[t.weapon]] : ta ? ta.mag : 0, res: ta && !NADE[t.weapon] ? ta.res : 0, rl: t.reloadEnd > now ? 1 : 0, kit: t.kit, bomb: t.inv.bomb, g: t.inv.g }; })(),
         bt: this.phase === 'freeze' ? 99 : this.phase === 'live' ? Math.max(0, Math.ceil(CFG.BUY_TIME - (now - Math.max(this.liveStart || 0, p.readyAt || 0)) / 1000 / TS)) : 0,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
@@ -1047,6 +1061,8 @@ io.on('connection', socket => {
     if (!room || !p) return; const msg = { id: p.id, on: !!on };
     for (const q of room.players.values()) { if (q.bot || q.id === p.id) continue; if (room.phase !== 'lobby' && room.mode === 'comp' && q.team !== p.team) continue; q.socket.emit('vc:talk', msg); }
   });
+  socket.on('spec', id => { if (p) p.specId = typeof id === 'string' ? id.slice(0, 40) : null; });
+  socket.on('takeover', id => { if (room && p && typeof id === 'string') room.takeOver(p, id); });
   socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
   socket.on('dropbomb', () => room && p && room.throwBomb(p));
@@ -1054,6 +1070,7 @@ io.on('connection', socket => {
     if (room && p) { socket.leave(room.code); room.removePlayer(p.id); room = null; p = null; }
     if (typeof cb === 'function') cb({ ok: true });
   });
+  if (TEST) socket.on('dbgKill', () => { if (room && p && p.alive) room.hurt(p, null, 1000, 'bomb', false, { ignoreTeam: true, noArmor: true }); });
   if (TEST) socket.on('dbgTp', t => { if (p) { p.x = t.x; p.y = t.y; p.z = t.z; p.hist.push({ t: Date.now(), x: t.x, y: t.y, z: t.z, cr: false }); } });
   socket.on('disconnect', () => { if (room && p) room.removePlayer(p.id); });
 });
