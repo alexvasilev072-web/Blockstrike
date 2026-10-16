@@ -11,7 +11,7 @@
 <canvas id="game"></canvas>
 <div id="flashfx"></div>
 <div id="smokefx"></div>
-<div id="vignette"></div>
+<div id="realVig"></div>
 
 <!-- Главно меню (върху анимиран 3D фон) -->
 <div id="join" class="screen">
@@ -88,6 +88,7 @@
       </div>
       <h4>Графика</h4>
       <label>Качество <select id="setQuality"><option value="low">Ниско</option><option value="medium">Средно</option><option value="high">Високо</option></select></label>
+      <label>Размер на оръжието <b id="setVmV"></b><input id="setVm" type="range" min="60" max="130" step="5"></label>
       <label class="chk"><input id="setReal" type="checkbox"> Реалистична графика (сенки, небе, меки текстури)</label>
       <label class="chk"><input id="setFps" type="checkbox"> Показвай FPS</label>
       <div class="row"><button class="fsbtn">Цял екран</button><button id="setReset">Нулирай настройките</button></div>

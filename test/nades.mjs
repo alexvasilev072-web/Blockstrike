@@ -9,10 +9,10 @@ const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 30); i++) { fa
 function setup() {
   const room = new Room('NADE' + Math.random().toString(36).slice(2, 5)); room.mapId = 'desert';
   const a = room.addBot('att', 'easy'), b = room.addBot('def', 'easy'), c = room.addBot('def', 'easy');
-  for (const p of [a, b, c]) p.bot = null;                // статични играчи без ИИ
+  for (const p of [a, b, c]) { p.bot = null; p.ready = true; }                // статични играчи без ИИ
   room.emit = () => { };
   const evs = {}; for (const p of [a, b, c]) { evs[p.id] = []; p.socket.emit = (n, d) => evs[p.id].push([n, d]); }
-  room.startMatch(); adv(room, 14);                       // freeze -> live
+  room.startMatch(); for (const p of [a, b, c]) p.ready = true; adv(room, 14);                       // freeze -> live
   return { room, a, b, c, evs };
 }
 const place = (p, x, y, z, yw = 0) => { p.x = x; p.y = y; p.z = z; p.yw = yw; p.pt = 0; p.hist = [{ t: fake, x, y, z, cr: false }]; };

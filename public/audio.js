@@ -64,7 +64,12 @@ async function loadManifest() {
   if (manifestLoaded) return; manifestLoaded = true;
   try {
     const list = await (await fetch('/api/sounds')).json();
-    for (const f of list) { const base = f.replace(/\.[a-z0-9]+$/i, ''); (files.get(base) || files.set(base, []).get(base)).push('/sounds/' + f); }
+    // OGG (Vorbis); ако браузърът не го поддържа – MP3 резервен вариант от /sounds/mp3/
+    const ogg = (() => { try { return !!new Audio().canPlayType('audio/ogg; codecs="vorbis"'); } catch { return true; } })();
+    for (const f of list) {
+      const base = f.replace(/\.[a-z0-9]+$/i, ''), url = /\.ogg$/i.test(f) && !ogg ? '/sounds/mp3/' + base + '.mp3' : '/sounds/' + f;
+      (files.get(base) || files.set(base, []).get(base)).push(url);
+    }
     fileFor('wind');      // предварително зареждане на файла за вятъра (ако има)
   } catch { }
 }

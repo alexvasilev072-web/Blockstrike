@@ -213,7 +213,12 @@ export class ViewModel {
     this.anim = null; this.fireKick = 0; this.sway = [0, 0]; this.flashUntil = 0; this.bobT = 0; this.shotCycle = null;
     this.visible = true;
   }
-  resize(aspect) { this.camera.aspect = aspect; this.camera.updateProjectionMatrix(); }
+  // еднакъв хоризонтален изглед при всякакво съотношение: по-тесен прозорец -> по-малък вертикален FOV, моделът не „расте“ в кадъра
+  resize(aspect, worldFov = 75) {
+    this.aspect = aspect; const h = (2 * Math.atan(Math.tan(27 * Math.PI / 180) * (16 / 9))) * (0.82 + 0.18 * worldFov / 75);
+    const v = 2 * Math.atan(Math.tan(h / 2) / aspect) * 180 / Math.PI;
+    this.camera.fov = Math.max(32, Math.min(78, v)); this.camera.aspect = aspect; this.camera.updateProjectionMatrix();
+  }
 
   // weapon: 'rifle' | 'knife' ...; cos: козметика на играча; team за ръкава
   setWeapon(weapon, cos, team, now) {
@@ -321,7 +326,7 @@ export class ViewModel {
       this.armL.position.set(lh[0] * VS + p.lh[0], lh[1] * VS + p.lh[1], lh[2] * VS + p.lh[2]);
     }
     if (this.flash) this.flash.visible = now < this.flashUntil;
-    this.holder.scale.setScalar(BP[this.id].knife ? 1.3 : 1);
+    this.holder.scale.setScalar((BP[this.id].knife ? 1.3 : 1) * (this.userScale || 1));
     this.holder.visible = this.visible;
     // горна част на ръката: от края на предмишницата до рамото (долу в ъгъла на екрана); следва оръжието при всяко завъртане
     this.holder.updateMatrixWorld(true);

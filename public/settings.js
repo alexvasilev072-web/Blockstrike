@@ -2,7 +2,7 @@
 import { audio } from './audio.js';
 
 const KEY = 'bs_settings';
-export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true, retro: false, realistic: true };
+export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true, retro: false, realistic: true, vmScale: 1 };
 
 function load() {
   try {
@@ -22,7 +22,7 @@ function sanitize() {
   settings.crossSize = clamp(settings.crossSize, 3, 24);
   if (!['low', 'medium', 'high'].includes(settings.quality)) settings.quality = 'high';
   if (!/^#[0-9a-f]{6}$/i.test(settings.crossColor)) settings.crossColor = DEFAULTS.crossColor;
-  settings.invert = !!settings.invert; settings.showFps = !!settings.showFps; settings.retro = !!settings.retro; settings.realistic = settings.realistic !== false;
+  settings.invert = !!settings.invert; settings.showFps = !!settings.showFps; settings.retro = !!settings.retro; settings.realistic = settings.realistic !== false; settings.vmScale = clamp(settings.vmScale, 0.6, 1.3);
 }
 
 const $ = s => document.querySelector(s);
@@ -42,7 +42,7 @@ function sync() {   // от обекта към контролите
   $('#setFov').value = settings.fov; $('#setFovV').textContent = settings.fov;
   for (const [id, k] of [['setVol', 'vol'], ['setVolFx', 'volFx'], ['setVolSteps', 'volSteps']]) { $('#' + id).value = Math.round(settings[k] * 100); $('#' + id + 'V').textContent = Math.round(settings[k] * 100) + '%'; }
   $('#setCrossCol').value = settings.crossColor; $('#setCrossSize').value = settings.crossSize; $('#setCrossSizeV').textContent = settings.crossSize + 'px';
-  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps; $('#setRetro').checked = settings.retro; $('#setReal').checked = settings.realistic;
+  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps; $('#setRetro').checked = settings.retro; $('#setReal').checked = settings.realistic; $('#setVm').value = Math.round(settings.vmScale * 100); $('#setVmV').textContent = Math.round(settings.vmScale * 100) + '%';
   document.querySelectorAll('.vol').forEach(o => { o.value = Math.round(settings.vol * 100); });
 }
 
@@ -65,6 +65,7 @@ export function initSettings(cb) {
   bind('setQuality', el => { settings.quality = el.value; }, 'change');
   bind('setFps', el => { settings.showFps = el.checked; }, 'change');
   bind('setReal', el => { settings.realistic = el.checked; }, 'change');
+  bind('setVm', el => { settings.vmScale = el.value / 100; });
   $('#setReset').onclick = () => { Object.assign(settings, DEFAULTS); apply(); sync(); };
   $('#setClose').onclick = closeSettings;
   document.querySelectorAll('.settingsOpen').forEach(b => b.onclick = openSettings);

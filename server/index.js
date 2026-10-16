@@ -137,7 +137,7 @@ class Room {
       id: socket.id, socket, name, team: 'att', x: 0, y: 1, z: 0, yw: 0, pt: 0, cr: false, g: true, wk: false, sc: false,
       hp: 0, armor: 0, kit: false, alive: false, money: CFG.START_MONEY, kills: 0, deaths: 0, inv: null, ammo: {}, weapon: 'pistol',
       nextShot: 0, reloadEnd: 0, shotIdx: 0, lastShot: 0, using: false, useP: 0, useStart: null, useKind: null,
-      hist: [], blindUntil: 0, lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
+      hist: [], ready: false, readyAt: 0, blindUntil: 0, lastState: 0, spd: 0, peak: 0, wasAir: false, lastTk: null, lastGround: null, deniedAt: 0,
       cos: { knife: 'bayonet', skins: {}, char: cleanChars() },
     };
     const cnt = { att: 0, def: 0 };
@@ -291,7 +291,7 @@ class Room {
     this.round = 0;
     this.sc = { att: 0, def: 0 };
     this.streak = { att: 0, def: 0 };
-    for (const p of this.players.values()) { p.money = CFG.START_MONEY; p.kills = 0; p.deaths = 0; this.resetLoadout(p); p.alive = false; }
+    for (const p of this.players.values()) { p.money = CFG.START_MONEY; p.kills = 0; p.deaths = 0; this.resetLoadout(p); p.alive = false; p.ready = !!p.bot; p.readyAt = 0; }
     this.emit('gameStart', { mapId: this.mapId, mode: 'comp', changes: [] });
     this.nextRound();
   }
@@ -626,7 +626,7 @@ class Room {
   buy(p, item) {
     if (!p.alive || this.run) return;
     const inFreeze = this.phase === 'freeze';
-    const inLive = this.phase === 'live' && Date.now() - (this.liveStart || 0) <= CFG.BUY_TIME * 1000 * TS;
+    const inLive = this.phase === 'live' && Date.now() - Math.max(this.liveStart || 0, p.readyAt || 0) <= CFG.BUY_TIME * 1000 * TS;
     if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
     if (!inFreeze && !inBuyZone(this.map.json.spawns[p.team], p.x, p.z)) return p.socket.emit('err', 'Можеш да купуваш само в зоната около spawn-а');
     if (item === 'pistol') return;
@@ -897,7 +897,9 @@ class Room {
     }
     if (this.phase !== 'matchover') for (const p of this.players.values()) if (p.bot) p.bot.update(dt, now);
     if (this.phase === 'freeze' && now >= this.phaseEnd) {
-      this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.LIVE * 1000 * TS;
+      // freeze не свършва, докато някой човек още е на екрана „Готов ли си?“ (най-много CFG.READY_WAIT сек повече)
+      const waiting = !TEST && [...this.players.values()].some(q => !q.bot && !q.ready) && now < this.roundStart + (CFG.FREEZE + CFG.READY_WAIT) * 1000;
+      if (!waiting) { this.phase = 'live'; this.liveStart = now; this.phaseEnd = now + CFG.LIVE * 1000 * TS; }
     }
     if (this.phase === 'live') {
       this.updateUse(dt, now);
@@ -934,6 +936,7 @@ class Room {
         hp: p.hp, ar: Math.round(p.armor), mo: p.money, w: p.weapon, inv: p.inv, kit: p.kit,
         mag: NADE[p.weapon] ? p.inv.g[NADE[p.weapon]] : am ? am.mag : 0, res: am && !NADE[p.weapon] ? am.res : 0,
         rl: p.reloadEnd > now ? 1 : 0, tm: p.team,
+        bt: this.phase === 'freeze' ? 99 : this.phase === 'live' ? Math.max(0, Math.ceil(CFG.BUY_TIME - (now - Math.max(this.liveStart || 0, p.readyAt || 0)) / 1000 / TS)) : 0,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
         rn: this.run && p.run ? { st: p.run.st, t0: p.run.t0, tm: p.run.tm, cps: p.cpSet ? p.cpSet.size : 0, total: this.map.cpCount } : null,
@@ -1012,6 +1015,7 @@ io.on('connection', socket => {
   socket.on('reload', () => room && p && p.alive && room.reload(p));
   socket.on('switch', s => room && p && ['pr', 'se', 'kn', 'n'].includes(s) && room.switchTo(p, s));
   socket.on('buy', item => room && p && typeof item === 'string' && room.buy(p, item));
+  socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
   socket.on('dropbomb', () => room && p && room.throwBomb(p));
   socket.on('leave', cb => {

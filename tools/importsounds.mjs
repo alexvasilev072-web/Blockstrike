@@ -63,4 +63,4 @@ for (const [name, dir, pre] of [['step_stone', 'concrete'], ['step_metal', 'meta
 variants('land', ['player/land.wav', 'player/land2.wav', 'player/land3.wav']);
 variants('hurt', ['player/damage1.wav', 'player/damage2.wav', 'player/damage3.wav']);
 variants('hit_head', ['player/headshot1.wav', 'player/headshot2.wav']);
-console.log(`Готово: ${n} звука в public/sounds/`);
+console.log(`Готово: ${n} звука (WAV) в public/sounds/. След това пусни: node tools/convertsounds.mjs --delete (OGG + MP3 резерв, по-малко място).`);

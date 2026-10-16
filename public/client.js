@@ -151,7 +151,7 @@ const camera = new THREE.PerspectiveCamera(75, 1, 0.05, 260);
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 const vmod = new ViewModel(renderer);
-function resize() { renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); vmod.resize(camera.aspect); }
+function resize() { renderer.setPixelRatio(pixelRatio); renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); vmod.resize(camera.aspect, settings.fov); vmod.userScale = settings.vmScale || 1; }
 addEventListener('resize', resize); resize();
 
 const atlas = buildAtlas(THREE);
@@ -540,6 +540,7 @@ initHeroes({ onChange: () => sendLoadout() });
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
+  S.sentReady = false; if (S.locked) { S.sentReady = true; socket.emit('ready'); }
   S.mode = mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.mapReady = (async () => {
     const json = await (await fetch(`/maps/${mapId}.json`)).json();
@@ -655,12 +656,12 @@ function updatePause() {
   if (show) {
     $('#pauseTitle').textContent = S.everLocked ? 'Пауза' : 'Готов ли си?';
     $('#pauseSub').textContent = S.everLocked ? 'Играта продължава' : 'Натисни „Играй“, за да хванеш мишката';
-    if (!$('#pauseNote').textContent) $('#playBtn').textContent = S.everLocked ? 'Продължи' : 'Играй';
+    $('#playBtn').textContent = S.everLocked ? 'Продължи' : 'Играй';
   }
 }
 function lockFailed() {   // Chrome не позволява pointer lock веднага след Esc (~1 сек): без грешка, само подканя за клик
   if (S.locked || !S.inGame) return;
-  $('#pauseNote').textContent = 'Кликни, за да продължиш'; $('#playBtn').textContent = 'Кликни, за да продължиш';
+  $('#pauseNote').textContent = 'Кликни, за да продължиш';
 }
 function requestLock() {
   audio.init(); $('#pauseNote').textContent = '';
@@ -671,7 +672,7 @@ function releaseInputs() { S.firing = false; S.clicked = false; S.rclick = false
 document.addEventListener('pointerlockchange', () => {
   const was = S.locked; S.locked = document.pointerLockElement === canvas;
   releaseInputs();
-  if (S.locked) { S.everLocked = true; $('#pauseNote').textContent = ''; }
+  if (S.locked) { S.everLocked = true; $('#pauseNote').textContent = ''; if (!S.sentReady) { S.sentReady = true; socket.emit('ready'); } }
   else { S.boardOpen = false; if (was) socket.emit('use', false); }
   updatePause();
 });
@@ -680,7 +681,7 @@ addEventListener('blur', () => { releaseInputs(); socket.emit('use', false); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) { releaseInputs(); socket.emit('use', false); } });
 $('#clickplay').style.pointerEvents = 'auto';
 $('#playBtn').onclick = e => { e.stopPropagation(); requestLock(); };
-$('#clickplay').onclick = e => { if (e.target.closest('.panel')) return; requestLock(); };
+$('#clickplay').onclick = e => { if (e.target.closest('button, select, input, label, a')) return; requestLock(); };
 $('#pBoard').onclick = () => { S.boardPinned = !S.boardPinned; if (!S.boardPinned) $('#board').classList.add('hidden'); };
 function askConfirm(title, text, onYes) {
   $('#confirmTitle').textContent = title; $('#confirmText').textContent = text; $('#confirm').classList.remove('hidden');
@@ -720,7 +721,7 @@ const GAME_KEYS = new Set(['Backspace', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyR', 
 function canBuy() {
   const s = S.snap; if (!s || !alive()) return false;
   if (s.ph === 'freeze') return true;
-  if (s.ph === 'live' && S.mapJson) return (s.el - CFG.FREEZE) <= CFG.BUY_TIME && inBuyZone(S.mapJson.spawns[S.me.tm], S.pos.x, S.pos.z);
+  if (s.ph === 'live' && S.mapJson) return S.me.bt > 0 && inBuyZone(S.mapJson.spawns[S.me.tm], S.pos.x, S.pos.z);
   return false;
 }
 addEventListener('keydown', e => {
@@ -937,8 +938,8 @@ function updateHud() {
   if (S.mode !== 'comp') return updateRunHud(s, m);
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
   $('#timer').textContent = s.bomb && s.bomb.st === 'planted' ? '💣' : fmt(s.tl);
-  const liveEl = s.el - CFG.FREEZE, buyLeft = Math.ceil(CFG.BUY_TIME - liveEl);
-  let ph = s.ph === 'freeze' ? `Купуване: ${Math.ceil(s.tl)}с  •  Рунд ${s.rd}` : `Рунд ${s.rd}  •  ${m.tm === 'att' ? 'Нападател' : 'Защитник'}`;
+  const buyLeft = m.bt;
+  let ph = s.ph === 'freeze' ? (s.tl <= 0 ? `Изчакване на играчите…  •  Рунд ${s.rd}` : `Купуване: ${Math.ceil(s.tl)}с  •  Рунд ${s.rd}`) : `Рунд ${s.rd}  •  ${m.tm === 'att' ? 'Нападател' : 'Защитник'}`;
   if (s.ph === 'live' && alive() && canBuy()) ph += `  •  Купуване (B): ${buyLeft}с`;
   $('#phaseTxt').textContent = ph;
   $('#phaseTxt').style.color = TEAM_COL[m.tm];
@@ -1043,5 +1044,5 @@ socket.on('finish', f => {
 const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
 let lastReal = settings.realistic;
-initSettings(() => { const t = maxPR(); if (pixelRatio !== t) { pixelRatio = t; resize(); } if (lastReal !== settings.realistic) { lastReal = settings.realistic; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
+initSettings(() => { const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic) { lastReal = settings.realistic; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
 initMenuBg();
