@@ -77,7 +77,7 @@ function leaveRoom() {
   S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
   S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
   if (document.pointerLockElement) document.exitPointerLock();
-  for (const m of models.values()) scene.remove(m.g);
+  for (const m of models.values()) disposeModel(m);
   models.clear(); S.pbuf.clear();
   for (const m of nadeMeshes.values()) scene.remove(m);
   nadeMeshes.clear();
@@ -135,14 +135,14 @@ function leaveGame() {   // мачът приключи: връщане в ло�
   S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
   $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
-  for (const m of models.values()) scene.remove(m.g);
+  for (const m of models.values()) disposeModel(m);
   models.clear(); S.pbuf.clear();
 }
 
 // ================= Three.js =================
 const canvas = $('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-const QUAL = { low: 0.7, medium: 1.0, high: 1.5 };
+const QUAL = { low: 1.0, medium: 1.5, high: 2.0 };       // таван на devicePixelRatio по качество (реалният е min с devicePixelRatio на екрана)
 const maxPR = () => Math.min(devicePixelRatio, QUAL[settings.quality] || 1.5);
 let pixelRatio = maxPR();
 renderer.setPixelRatio(pixelRatio);
@@ -157,7 +157,7 @@ addEventListener('resize', resize); resize();
 const atlas = buildAtlas(THREE);
 atlas.texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 const worldR = new WorldRenderer(scene, atlas);
-function buildWorldMesh(world) { worldR.load(world, { ...(S.mapJson?.env || {}), realistic: settings.realistic }); buildBspMesh(S.mapJson); applyRealism(); }
+function buildWorldMesh(world) { worldR.load(world, { ...(S.mapJson?.env || {}), realistic: settings.realistic, shadows: settings.realistic && settings.quality === 'high' }); buildBspMesh(S.mapJson); applyRealism(); }
 
 // ----- GoldSrc (CS 1.6) карта: геометрията е готова триъгълна мрежа с вградено осветление -----
 let bspGroup = null;
@@ -279,6 +279,8 @@ function nameSprite(name, col) {
   s.scale.set(1.6, 0.3, 1); s.position.y = 2.15; s.renderOrder = 9; return s;
 }
 const handGeoS = new THREE.SphereGeometry(0.052, 10, 8);
+const BOMB_GEO = new THREE.BoxGeometry(0.4, 0.14, 0.26), LED_GEO = new THREE.BoxGeometry(0.06, 0.04, 0.06), LED_MAT = new THREE.MeshBasicMaterial({ color: 0xff2020 });
+const SHADOW_GEO = new THREE.CircleGeometry(0.5, 12), SHADOW_MAT = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 });
 const charOf = (id, tm) => { const ch = S.cosById.get(id)?.char; return (ch && typeof ch === 'object' ? ch[tm] : null) || defaultChar(tm); };
 function makeModel(p) {
   const char = charOf(p.i, p.tm), c = buildCharacter(char, p.tm);
@@ -288,9 +290,9 @@ function makeModel(p) {
   const handR = new THREE.Mesh(handGeoS, hm), handL = new THREE.Mesh(handGeoS, hm);
   const gunHolder = new THREE.Group(); gunHolder.position.set(0.2, -0.2 - (sh.y - 1.3), -0.42);
   aim.add(armR.g, armL.g, handR, handL, gunHolder);
-  const bomb = box(0.4, 0.14, 0.26, mat(0x2d2d2d)); bomb.position.set(0, 1.05, 0.27); bomb.visible = false;
-  const led = box(0.06, 0.04, 0.06, new THREE.MeshBasicMaterial({ color: 0xff2020 })); led.position.set(0.12, 0.09, 0); bomb.add(led);
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 12), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
+  const bomb = new THREE.Mesh(BOMB_GEO, mat(0x2d2d2d)); bomb.position.set(0, 1.05, 0.27); bomb.visible = false;
+  const led = new THREE.Mesh(LED_GEO, LED_MAT); led.position.set(0.12, 0.09, 0); bomb.add(led);
+  const shadow = new THREE.Mesh(SHADOW_GEO, SHADOW_MAT);
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.renderOrder = 1;
   rig.add(head, body, legL, legR, aim, bomb); g.add(rig, shadow);
   const m = { shX: sh.x, char, tick: c.tick, g, rig, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
@@ -335,6 +337,8 @@ const surfaceAt = (x, y, z) => {
   return DEFS[S.world.get(Math.floor(x), Math.floor(y - 0.05), Math.floor(z))]?.surface || 'stone';
 };
 
+// махане на модела на играч: името (CanvasTexture) се освобождава, геометриите са общи и остават
+function disposeModel(m) { scene.remove(m.g); m.g.traverse(o => { if (o.isSprite) { o.material.map?.dispose(); o.material.dispose(); } }); }
 function updateModels(dt) {
   const snap = S.snap; if (!snap) return;
   const rt = serverNow() - 100, ids = new Set();
@@ -342,7 +346,7 @@ function updateModels(dt) {
     if (p.i === S.id) continue;
     ids.add(p.i);
     let m = models.get(p.i);
-    if (!m || m.team !== p.tm || m.char !== charOf(p.i, p.tm)) { if (m) scene.remove(m.g); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
+    if (!m || m.team !== p.tm || m.char !== charOf(p.i, p.tm)) { if (m) disposeModel(m); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
     const pose = poseOf(p.i, rt) || p;
     m.g.visible = !(S.specId === p.i && !alive());
     m.g.position.set(pose.x, pose.y, pose.z);
@@ -375,7 +379,7 @@ function updateModels(dt) {
     // тиктакащ звук при залагане/обезвреждане от други играчи
     if (p.us && p.al) { m.useT = (m.useT || 0) - dt; if (m.useT <= 0) { m.useT = p.us === 1 ? 0.5 : 0.8; (p.us === 1 ? audio.plantTick : audio.defuseTick)([pose.x, pose.y + 0.5, pose.z]); } }
   }
-  for (const [id, m] of models) if (!ids.has(id)) { scene.remove(m.g); models.delete(id); }
+  for (const [id, m] of models) if (!ids.has(id)) { disposeModel(m); models.delete(id); }
 }
 
 // ================= Ефекти =================
@@ -426,6 +430,7 @@ function updateFx(dt) {
 
 // ----- гранати и бомба -----
 const nadeMeshes = new Map();
+const _nv = new THREE.Vector3();
 function nadeMesh(k) {
   if (k === 'flash') { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.15, 10), mat(0xb7bcc4)); return m; }
   if (k === 'smoke') { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.18, 10), mat(0x5d7a63)); return m; }
@@ -440,7 +445,7 @@ function updateNades() {
     let m = nadeMeshes.get(g.i);
     if (!m) { m = nadeMesh(g.k); m.position.set(g.x, g.y, g.z); scene.add(m); nadeMeshes.set(g.i, m); }
     m.rotation.x += 0.25; m.rotation.z += 0.12;
-    m.position.lerp(new THREE.Vector3(g.x, g.y, g.z), 0.6);
+    m.position.lerp(_nv.set(g.x, g.y, g.z), 0.6);
   }
   for (const [id, m] of nadeMeshes) if (!ids.has(id)) { scene.remove(m); nadeMeshes.delete(id); }
 }
@@ -850,15 +855,37 @@ function cycleSpec() {
 
 // ================= Главен цикъл =================
 const _lf = new THREE.Vector3();
+// ---- панел за производителност (F3): FPS, време на кадър по части, draw calls, триъгълници ----
+renderer.info.autoReset = false;
+const perf = { on: false, el: null, sum: [0, 0, 0, 0], max: 0, n: 0, t: 0 };
+addEventListener('keydown', e => {
+  if (e.code !== 'F3') return; e.preventDefault(); perf.on = !perf.on;
+  if (!perf.el) { perf.el = document.createElement('pre'); perf.el.style.cssText = 'position:fixed;left:8px;top:150px;z-index:20;margin:0;padding:6px 8px;background:rgba(0,0,0,.7);color:#9dffb0;font:12px/1.35 Consolas,monospace;pointer-events:none;white-space:pre'; document.body.appendChild(perf.el); }
+  perf.el.style.display = perf.on ? '' : 'none';
+});
+function perfReport(dt) {
+  if (!perf.on) return; perf.t += dt; if (perf.t < 0.5) return;
+  const n = Math.max(1, perf.n), a = perf.sum.map(v => (v / n).toFixed(2)), i = renderer.info;
+  perf.el.textContent = [
+    `FPS ${fpsShown}   кадър (CPU) ${a[3]} мс  (макс ${perf.max.toFixed(1)})`,
+    `  логика+модели ${a[0]} мс   сцена ${a[1]} мс   оръжие+HUD ${a[2]} мс`,
+    `draw calls ${i.render.calls}   триъгълници ${(i.render.triangles / 1000).toFixed(1)}k   точки ${i.render.points}`,
+    `геометрии ${i.memory.geometries}   текстури ${i.memory.textures}   чънкове ${worldR.chunks.size}   играчи ${models.size}   pixelRatio ${pixelRatio.toFixed(2)}`,
+  ].join('\n');
+  perf.sum = [0, 0, 0, 0]; perf.max = 0; perf.n = 0; perf.t = 0;
+}
 let last = performance.now(), hudT = 0, fpsAcc = 0, fpsN = 0, fpsShown = 0;
+let lastRender = 0;
 function frame(nowMs) {
   requestAnimationFrame(frame);
+  if (settings.fpsLimit && nowMs - lastRender < 1000 / settings.fpsLimit - 0.6) return;   // лимит на FPS (0 = без лимит)
+  lastRender = nowMs;
   const dt = Math.min(0.05, Math.max(0, (nowMs - last) / 1000)); last = nowMs;
   fpsAcc += dt; fpsN++; S.frames = (S.frames || 0) + 1;
   if (fpsAcc >= 1) { fpsShown = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; adaptQuality(fpsShown); }
   if (!S.inGame) { menuFrame(dt, Date.now()); return; }
   if (!S.world) { renderer.render(scene, camera); return; }
-  const now = Date.now();
+  const now = Date.now(), pf0 = performance.now(); renderer.info.reset();
 
   // фиксирана стъпка 64 Hz
   const inp = readInput();
@@ -910,11 +937,14 @@ function frame(nowMs) {
   $('#scope').style.display = S.scoped && isAlive ? 'block' : 'none';
   $('#cross').style.display = S.scoped || !isAlive ? 'none' : '';
 
+  const pf1 = performance.now();
   renderer.render(scene, camera);
+  const pf2 = performance.now();
   vmod.render(renderer);
   if (!S.bsp && now - (S.radarT || 0) > 33) { S.radarT = now; const f = isAlive ? { x: S.pos.x, z: S.pos.z, yaw: S.yaw } : (S.specId && poseOf(S.specId, serverNow() - 100)) ? (() => { const q = poseOf(S.specId, serverNow() - 100); return { x: q.x, z: q.z, yaw: q.yw }; })() : { x: S.pos.x, z: S.pos.z, yaw: S.yaw }; drawRadar($('#radar'), S, atlas, f, TEAM_COL); }
 
   hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); }
+  { const pf3 = performance.now(); perf.sum[0] += pf1 - pf0; perf.sum[1] += pf2 - pf1; perf.sum[2] += pf3 - pf2; perf.sum[3] += pf3 - pf0; perf.max = Math.max(perf.max, pf3 - pf0); perf.n++; perfReport(dt); }
 }
 requestAnimationFrame(frame); window.__frame = frame; window.__vm = vmod; window.__socket = socket; window.__renderer = renderer;
 
@@ -1043,6 +1073,6 @@ socket.on('finish', f => {
 });
 const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
-let lastReal = settings.realistic;
-initSettings(() => { const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic) { lastReal = settings.realistic; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
+let lastReal = settings.realistic, lastQual = settings.quality;
+initSettings(() => { const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic || lastQual !== settings.quality) { lastReal = settings.realistic; lastQual = settings.quality; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
 initMenuBg();

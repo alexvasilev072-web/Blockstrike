@@ -22,7 +22,11 @@ const VC = () => { let m = mats.get('vc'); if (!m) mats.set('vc', m = new THREE.
 const VC2 = () => { let m = mats.get('vc2'); if (!m) mats.set('vc2', m = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })); return m; };
 const GL = hex => { const k = 'g' + hex; let m = mats.get(k); if (!m) mats.set(k, m = new THREE.MeshBasicMaterial({ color: hex, fog: false })); return m; };   // светещи/гладки части
 const mesh = (geo, hex, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(paint(geo, hex), VC()); m.position.set(x, y, z); m.scale.set(sx, sy, sz); return m; };
-const glow = (geo, hex, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, GL(hex)); m.position.set(x, y, z); m.scale.set(sx, sy, sz); return m; };
+const glow = (geo, hex, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => {
+  const c = new THREE.Color(hex), n = geo.attributes.position.count, col = new Float32Array(n * 3); for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, VC()); m.position.set(x, y, z); m.scale.set(sx, sy, sz); return m;
+};
 const sphere = (r, hex, x, y, z, sx = 1, sy = 1, sz = 1) => mesh(new THREE.SphereGeometry(r, 14, 10), hex, x, y, z, sx, sy, sz);
 const cyl = (rt, rb, h, hex, x, y, z, seg = 12) => mesh(new THREE.CylinderGeometry(rt, rb, h, seg), hex, x, y, z);
 const box = (w, h, d, hex, x, y, z) => mesh(new THREE.BoxGeometry(w, h, d), hex, x, y, z);
@@ -43,7 +47,7 @@ function decal(text, w, h, { color = '#f4f4f4', bg = null, front = true } = {}) 
     const tex = new THREE.CanvasTexture(c); tex.anisotropy = 4; tex.colorSpace = THREE.SRGBColorSpace;
     mat = new THREE.MeshBasicMaterial({ map: tex, transparent: !bg, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); decalMats.set(key, mat);
   }
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); if (front) m.rotation.y = Math.PI; return m;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); m.userData.keep = true; if (front) m.rotation.y = Math.PI; return m;
 }
 
 // ---------- един параметричен човек; героите са различни комбинации от облекло, екипировка и лице ----------
@@ -119,7 +123,7 @@ function soldier(T, o) {
     if (shorts) l.add(cyl(0.082, 0.068, 0.14, skin, 0, -0.37, 0, 10), sphere(0.066, skin, 0, -0.44, 0), cyl(0.086, 0.086, 0.02, shade(pants, 0.7), 0, -0.3, 0, 10));
     else l.add(sphere(0.068, pantsD, 0, -0.44, 0), box(0.05, 0.13, 0.11, pantsD, side * 0.078, -0.2, -0.01));
     if (stripe) l.add(box(0.008, th, 0.034, stripe, side * 0.0905, -th / 2, 0));
-    const shin = new THREE.Group(); shin.position.set(0, -0.44, 0);
+    const shin = new THREE.Group(); shin.position.set(0, -0.44, 0); shin.name = 'shin'; shin.userData.stop = true;
     if (sn || shorts) {                                           // маратонки (без ботуши): чорап + обувка със страничен акцент
       shin.add(cyl(0.062, 0.046, 0.4, shorts ? skin : pants, 0, -0.2, 0, 10), cyl(0.05, 0.05, 0.14, 0xf2f2f2, 0, -0.33, 0, 10));
       const c = sn?.c ?? 0xe8e8e8, a = sn?.a ?? 0x888888;
@@ -150,19 +154,47 @@ const HEROES = {
 export const CHAR_IDS = Object.keys(HEROES);
 export const heroesFor = team => CHAR_LIST.filter(c => c.team === team);
 export const defaultChar = team => (team === 'def' ? 'ct_gdbop' : 't_ultra');
+// слепва всички обикновени мешове в групата в по един меш на материал (рязко по-малко draw calls); декали и „stop“ подгрупи остават
+function bake(root) {
+  root.updateMatrix();
+  const buckets = new Map(), kill = [];
+  for (const c of root.children) {
+    if (!c.isMesh || c.userData.keep) continue;
+    c.updateMatrix(); const g = c.geometry.clone().applyMatrix4(c.matrix); let b = buckets.get(c.material);
+    if (!b) buckets.set(c.material, b = { pos: [], col: [], idx: [] });
+    const base = b.pos.length / 3; b.pos.push(...g.attributes.position.array); b.col.push(...g.attributes.color.array);
+    const ix = g.index ? g.index.array : null; if (ix) for (const i of ix) b.idx.push(base + i); else for (let i = 0; i < g.attributes.position.count; i++) b.idx.push(base + i);
+    kill.push(c);
+  }
+  for (const c of kill) { root.remove(c); c.geometry.dispose(); }
+  for (const [mat, b] of buckets) {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3)); g.setIndex(b.idx); g.computeBoundingSphere();
+    root.add(new THREE.Mesh(g, mat));
+  }
+  const shin = root.getObjectByName('shin'); if (shin && shin !== root) bake(shin);
+}
+const TPL = new Map();
 export function buildCharacter(id, team = 'att') {
-  const b = HEROES[id] || HEROES[defaultChar(team)];
-  return b(TEAM[team] || TEAM.att);
+  const hid = HEROES[id] ? id : defaultChar(team), key = hid + '|' + team;
+  let t = TPL.get(key);
+  if (!t) { t = HEROES[hid](TEAM[team] || TEAM.att); for (const k of ['head', 'body', 'legL', 'legR']) bake(t[k]); TPL.set(key, t); }
+  // нов екземпляр: същите геометрии и материали (без ново качване в GPU)
+  const o = { ...t, head: t.head.clone(), body: t.body.clone(), legL: t.legL.clone(), legR: t.legR.clone() };
+  o.legL.userData.shin = o.legL.getObjectByName('shin'); o.legR.userData.shin = o.legR.getObjectByName('shin');
+  return o;
 }
 
 // ---------- ръка с лакът (2-костно IK): от рамото до целта (всичко в пространството на aim-групата) ----------
 const L1 = 0.29, L2 = 0.27;
 const _f = new THREE.Vector3(0, 0, -1), _d = new THREE.Vector3(), _e = new THREE.Vector3(), _p = new THREE.Vector3(), _o = new THREE.Vector3(), _h = new THREE.Vector3();
-const cylUnit = (r0, r1) => paint(new THREE.CylinderGeometry(r0, r1, 1, 10).rotateX(-Math.PI / 2).translate(0, 0, -0.5), 0xffffff);
+const ARMG = new Map(), ARMM = new Map();
+const cylUnit = (r0, r1) => { const k = r0.toFixed(4) + '|' + r1.toFixed(4); let g = ARMG.get(k); if (!g) ARMG.set(k, g = paint(new THREE.CylinderGeometry(r0, r1, 1, 10).rotateX(-Math.PI / 2).translate(0, 0, -0.5), 0xffffff)); return g; };
+const armMat = hex => { let m = ARMM.get(hex); if (!m) ARMM.set(hex, m = new THREE.MeshBasicMaterial({ color: hex, vertexColors: true })); return m; };
+const ELBG = new THREE.SphereGeometry(0.052, 8, 6);
 export function makeArm(c) {
-  const mat = new THREE.MeshBasicMaterial({ color: c.armHex, vertexColors: true }), r = c.armR || [0.062, 0.046];
+  const mat = armMat(c.armHex), r = c.armR || [0.062, 0.046];
   const g = new THREE.Group(), upper = new THREE.Mesh(cylUnit(r[0], r[1] + 0.004), mat), fore = new THREE.Mesh(cylUnit(r[1] + 0.004, r[1] - 0.006), mat);
-  const elbow = new THREE.Mesh(new THREE.SphereGeometry(r[1] + 0.006, 8, 6), mat);
+  const elbow = new THREE.Mesh(ELBG, mat); elbow.scale.setScalar((r[1] + 0.006) / 0.052);
   g.add(upper, fore, elbow);
   return {
     g,

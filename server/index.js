@@ -945,7 +945,9 @@ class Room {
   }
 }
 
-setInterval(() => { const now = Date.now(); for (const r of rooms.values()) r.tick(now); }, 33);
+// честота на симулацията/снапшотите на сървъра (по подразбиране 30 Hz); при по-мощен хостинг: TICK_MS=22 (~45 Hz) или 16 (~60 Hz)
+const TICK_MS = Math.max(10, Math.min(50, Number(process.env.TICK_MS) || 33));
+setInterval(() => { const now = Date.now(); for (const r of rooms.values()) r.tick(now); }, TICK_MS);
 
 // ---------- Socket.io ----------
 const cleanSkin = v => String(v || '').replace(/[^a-z0-9_]/gi, '').slice(0, 16);

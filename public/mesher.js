@@ -30,7 +30,7 @@ export class WorldRenderer {
   load(world, env) {
     this.world = world; this.env = { ambient: 0.22, sun: 1, ...env };
     const sd = this.env.sunDir || [-0.55, 0.75, -0.38], sl = Math.hypot(...sd); this.sunDir = sd.map(v => v / sl);
-    this.shadows = this.env.realistic !== false && this.env.sun > 0.2; this.shCache = new Map();
+    this.shadows = (this.env.shadows ?? this.env.realistic !== false) && this.env.sun > 0.2; this.shCache = new Map();
     this.clear();
     this.relight();
     for (let cz = 0; cz < Math.ceil(world.sz / CH); cz++) for (let cx = 0; cx < Math.ceil(world.sx / CH); cx++) this.buildChunk(cx, cz);
