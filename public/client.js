@@ -730,6 +730,7 @@ function canBuy() {
   return false;
 }
 addEventListener('keydown', e => {
+  if (S.chatOpen) return;
   if (!S.inGame) return;
   // Ctrl/Cmd + игрова клавиш не бива да задейства браузърни команди (Ctrl+D отметка, Ctrl+S запазване, Ctrl+A маркиране…)
   if (S.locked && (e.ctrlKey || e.metaKey) && GAME_KEYS.has(e.code)) e.preventDefault();
@@ -749,9 +750,46 @@ addEventListener('keydown', e => {
   if (e.code.startsWith('Control') || e.code === 'KeyC') e.preventDefault();
 });
 addEventListener('keyup', e => {
+  if (S.chatOpen) return;
   S.keys[e.code] = false;
   if (e.code === 'Tab') { S.boardOpen = false; if (!S.boardPinned) $('#board').classList.add('hidden'); }
   if (e.code === 'KeyE') socket.emit('use', false);
+});
+// ================= Текстов чат =================
+// Enter / Y – до всички, U – само до отбора, Esc – затваря. Докато пишеш, клавишите за игра не работят. Текстът се показва само чрез textContent (без HTML).
+const chatEl = $('#chat'), chatLog = $('#chatLog'), chatBox = $('#chatBox'), chatInput = $('#chatInput'), chatTag = $('#chatTag');
+function chatInRoom() { return !!S.id && (S.inGame || !$('#lobby').classList.contains('hidden')); }
+function openChat(team) {
+  if (!chatInRoom() || S.chatOpen) return;
+  S.chatOpen = true; S.chatTeam = !!team && S.mode === 'comp'; releaseInputs(); S.buyOpen && closeBuy();
+  chatTag.textContent = S.chatTeam ? 'Отбор' : 'Всички'; chatTag.style.color = S.chatTeam ? '#7cf08a' : '#fff';
+  chatEl.classList.add('open'); chatBox.classList.remove('hidden'); chatInput.value = ''; chatInput.focus(); chatRefresh();
+}
+function closeChat() { if (!S.chatOpen) return; S.chatOpen = false; chatEl.classList.remove('open'); chatBox.classList.add('hidden'); chatInput.blur(); chatInput.value = ''; chatRefresh(); }
+function sendChat() { const t = chatInput.value.trim(); if (t) socket.emit('chat', { t: t.slice(0, CFG.CHAT_MAX), team: S.chatTeam }); closeChat(); }
+function addChatLine(m) {
+  const d = document.createElement('div'); d.className = 'chatline'; d._t = Date.now();
+  const tg = document.createElement('span'); tg.className = 'tg'; tg.textContent = m.team ? '[отбор]' : '[всички]';
+  const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = m.n + ': '; nm.style.color = TEAM_COL[m.tm] || '#fff';
+  const tx = document.createElement('span'); tx.textContent = m.t;
+  d.append(tg, nm, tx); chatLog.append(d); while (chatLog.children.length > 80) chatLog.firstChild.remove();
+  chatLog.scrollTop = chatLog.scrollHeight; chatRefresh();
+}
+function chatRefresh() {
+  const now = Date.now(); let any = false;
+  for (const d of chatLog.children) { const old = now - d._t > 8000; d.classList.toggle('old', old); if (!old) any = true; }
+  chatEl.classList.toggle('hidden', !(S.chatOpen || any));
+  chatEl.classList.toggle('lobby', !S.inGame);
+}
+setInterval(chatRefresh, 400);
+socket.on('chat', addChatLine);
+addEventListener('keydown', e => {
+  if (!chatInRoom()) return;
+  if (S.chatOpen) { if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); sendChat(); } else if (e.code === 'Escape') closeChat(); return; }
+  const a = document.activeElement; if (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return;
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'KeyY') { e.preventDefault(); openChat(false); }
+  else if (e.code === 'KeyU') { e.preventDefault(); openChat(true); }
 });
 function openBuy() { S.buyOpen = true; $('#buy').classList.remove('hidden'); renderBuy(); }
 function closeBuy() { S.buyOpen = false; $('#buy').classList.add('hidden'); }

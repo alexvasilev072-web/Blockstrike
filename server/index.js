@@ -1017,6 +1017,16 @@ io.on('connection', socket => {
   socket.on('reload', () => room && p && p.alive && room.reload(p));
   socket.on('switch', s => room && p && ['pr', 'se', 'kn', 'n'].includes(s) && room.switchTo(p, s));
   socket.on('buy', item => room && p && typeof item === 'string' && room.buy(p, item));
+  // текстов чат: чист текст (без управляващи знаци), най-много 120 символа, ограничение на честотата; клиентът го показва само чрез textContent
+  socket.on('chat', d => {
+    if (!room || !p) return;
+    const now = Date.now(); if (now - (p.lastChat || 0) < CFG.CHAT_GAP) return;
+    const text = String(d?.t ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '').replace(/\s+/g, ' ').trim().slice(0, CFG.CHAT_MAX);
+    if (!text) return; p.lastChat = now;
+    const teamOnly = !!d?.team && room.mode === 'comp', msg = { id: p.id, n: p.name, tm: p.team, team: teamOnly, t: text };
+    if (teamOnly) { for (const q of room.players.values()) if (!q.bot && q.team === p.team) q.socket.emit('chat', msg); }
+    else room.emit('chat', msg);
+  });
   socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
   socket.on('dropbomb', () => room && p && room.throwBomb(p));

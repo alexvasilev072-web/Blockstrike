@@ -152,3 +152,15 @@ button.danger { border-color: #a04444; background: #4a2020; } button.danger:hove
 #realVig { position: fixed; inset: 0; pointer-events: none; z-index: 1; background: radial-gradient(ellipse at 50% 55%, rgba(0,0,0,0) 55%, rgba(0,0,0,.42) 100%); display: none; }
 body.real #realVig { display: block; }
 #smokefx { position: fixed; inset: 0; background: #c6cacd; opacity: 0; pointer-events: none; z-index: 7; }
+
+/* чат */
+#chat { position: fixed; left: 14px; bottom: 96px; width: min(520px, 62vw); z-index: 40; pointer-events: none; font-size: 15px; text-shadow: 1px 1px 0 rgba(0,0,0,.85); }
+#chat.lobby { bottom: 14px; }
+#chatLog { display: flex; flex-direction: column; gap: 2px; max-height: 230px; overflow: hidden; justify-content: flex-end; }
+#chat.open #chatLog { max-height: 340px; overflow-y: auto; pointer-events: auto; }
+.chatline { background: rgba(0,0,0,.45); padding: 2px 8px; word-break: break-word; width: fit-content; max-width: 100%; }
+.chatline.old { display: none; } #chat.open .chatline.old { display: block; }
+.chatline .nm { font-weight: 700; } .chatline .tg { color: #9db0c8; font-size: 12px; margin-right: 4px; }
+#chatBox { display: flex; gap: 6px; align-items: center; margin-top: 6px; pointer-events: auto; }
+#chatTag { background: rgba(0,0,0,.7); border: 2px solid #46546b; padding: 6px 8px; font-size: 13px; font-weight: 700; white-space: nowrap; }
+#chatInput { flex: 1; margin: 0; padding: 7px 10px; font-size: 15px; }
