@@ -1,4 +1,1 @@
 node_modules
-# звукови файлове, добавени локално (напр. звуци на Valve) – не се качват и не се деплойват; README-то остава
-public/sounds/*
-!public/sounds/README.md
