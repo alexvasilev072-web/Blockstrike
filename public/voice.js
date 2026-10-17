@@ -93,7 +93,7 @@ export function initVoice({ socket, getMyId, getPlayers, canTalk, settings, onCh
       clearTimeout(idleT); ptt = true; if (!(await ensureMic()) || !ptt) { ptt = false; return; }
       track.enabled = true; applyPolicy(); socket.emit('vc:talk', true); talking.add(getMyId()); onChange();
     } else if (!down && ptt) {
-      ptt = false; if (track) track.enabled = false; clearTimeout(idleT); idleT = setTimeout(releaseMic, 12000); socket.emit('vc:talk', false); talking.delete(getMyId()); onChange();
+      ptt = false; if (track) track.enabled = false; clearTimeout(idleT); idleT = setTimeout(releaseMic, 1500); socket.emit('vc:talk', false); talking.delete(getMyId()); onChange();
     }
   }
   function setMic(id) { settings.micId = id || ''; if (stream) stream.getTracks().forEach(t => t.stop()); stream = track = null; for (const P of peers.values()) P.sent = null; applyPolicy(); }
