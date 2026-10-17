@@ -202,3 +202,9 @@ body.ingame #musicBar { display: none; }
 .lw.on { outline: 2px solid #ffd34d; background: #2b3447; }
 .lrow { display: flex; flex-wrap: wrap; gap: 14px; }
 #loadoutTeam button.on { outline: 2px solid #ffd34d; }
+
+/* магазин: 5 колони като в CS2 (екипировка, пистолети, средна класа, автомати, гранати) */
+#buy.wide { width: min(94vw, 980px); }
+.buycols { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 8px 0 12px; }
+.buycol h4 { margin: 0 0 4px; color: #ffd34d; font-size: 15px; border-bottom: 2px solid #e0701a; padding-bottom: 3px; }
+.buycol .buyrow { font-size: 14px; padding: 3px 2px; flex-direction: column; border-bottom: 1px solid #2f3a4c; }

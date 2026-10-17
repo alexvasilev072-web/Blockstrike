@@ -960,8 +960,9 @@ function buyPages() {
   const m = S.me, team = m.tm, L = loadout[team], pages = { top: [] };
   const fav = (slot, label) => { const id = L[slot]; return id && canUse(id, team) ? { id, label: label + ': ' + WEAPONS[id].name } : { none: true, label: label + ': не е избрано (Инвентар в менюто)' }; };
   pages.top.push({ ...fav('pr', 'Любимо основно'), k: 'fav' }, { ...fav('se', 'Любим пистолет'), k: 'fav' }, { kit: true, label: 'Любим комплект: броня' + (team === 'def' ? ' + kit' : '') + ' + гранати', k: 'kit' });
-  for (const c of BUY_CATS) pages.top.push({ page: c.id, label: c.label });
-  pages.top.push({ page: 'gear', label: 'Екипировка' }, { page: 'nade', label: 'Гранати' });
+  // колони като в CS2: 1 екипировка, 2 пистолети, 3 средна класа, 4 автомати, 5 гранати; 6–8 са любимите
+  pages.cols = [{ page: 'gear', label: 'Екипировка' }, ...BUY_CATS.slice(0, 1).map(c => ({ page: c.id, label: c.label })), ...BUY_CATS.slice(1).map(c => ({ page: c.id, label: c.label })), { page: 'nade', label: 'Гранати' }];
+  pages.cols = [pages.cols[0], pages.cols[1], pages.cols[2], pages.cols[3], pages.cols[4]];
   for (const c of BUY_CATS) pages[c.id] = weaponsOfCat(c, team).map(id => ({ id, label: WEAPONS[id].name }));
   pages.gear = [{ id: 'armor', label: 'Броня' }, ...(team === 'def' ? [{ id: 'kit', label: 'Defuse kit' }] : [])];
   pages.nade = ['grenade', 'flash', 'smoke', 'molotov'].map(id => ({ id, label: WEAPONS[id].name }));
@@ -975,6 +976,13 @@ function buyKey(e) {
   if (!/^Digit[0-9]$/.test(e.code)) return false;
   const n = +e.code[5], pages = buyPages(), cur = pages[S.buyPage] || pages.top;
   if (n === 0) { if (S.buyPage !== 'top') { S.buyPage = 'top'; renderBuy(); } return true; }
+  if (S.buyPage === 'top' || !S.buyPage) {                                  // главна страница: 1–5 колона, 6–8 любими
+    if (n <= 5) { S.buyPage = pages.cols[n - 1].page; renderBuy(); return true; }
+    const f = pages.top[n - 6]; if (!f) return true;
+    if (f.k === 'kit') { for (const id of kitPlan()) if (!buyOwn(id)) socket.emit('buy', id); return true; }
+    if (f.none) { toast('Избери любими оръжия от „Инвентар“ в главното меню', 2500); return true; }
+    socket.emit('buy', f.id); return true;
+  }
   const it = cur[n - 1]; if (!it) return true;
   if (it.page) { S.buyPage = it.page; renderBuy(); return true; }
   if (it.k === 'kit') { for (const id of kitPlan()) if (!buyOwn(id)) socket.emit('buy', id); return true; }
@@ -983,14 +991,19 @@ function buyKey(e) {
 }
 function renderBuy() {
   const m = S.me, pages = buyPages(), page = S.buyPage || 'top', cur = pages[page] || pages.top;
-  $('#buyHelp').textContent = page === 'top' ? '(B – затвори)' : '(0 – назад, B – затвори)';
-  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + cur.map((it, i) => {
-    if (it.page) return `<div class="buyrow"><span>[${i + 1}] ${it.label}</span><span>›</span></div>`;
-    if (it.k === 'kit') { const plan = kitPlan().filter(id => !buyOwn(id)), cost = plan.reduce((s, id) => s + buyPrice(id), 0); return `<div class="buyrow ${!plan.length ? 'no' : ''}"><span>[${i + 1}] ${it.label}</span><span>${plan.length ? '<b>$' + cost + '</b>' : '<em>имаш</em>'}</span></div>`; }
-    if (it.none) return `<div class="buyrow no"><span>[${i + 1}] ${it.label}</span><span></span></div>`;
+  const row = (it, i, num) => {
+    if (it.k === 'kit') { const plan = kitPlan().filter(id => !buyOwn(id)), cost = plan.reduce((s, id) => s + buyPrice(id), 0); return `<div class="buyrow ${!plan.length ? 'no' : ''}"><span>[${num}] ${it.label}</span><span>${plan.length ? '<b>$' + cost + '</b>' : '<em>имаш</em>'}</span></div>`; }
+    if (it.none) return `<div class="buyrow no"><span>[${num}] ${it.label}</span><span></span></div>`;
     const own = buyOwn(it.id), price = buyPrice(it.id), blocked = NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES;
-    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>[${i + 1}] ${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
-  }).join('');
+    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>${num ? '[' + num + '] ' : ''}${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
+  };
+  $('#buy').classList.toggle('wide', page === 'top');
+  $('#buyHelp').textContent = page === 'top' ? '(1–5 – колона, 6–8 – любими, B – затвори)' : '(0 – назад, B – затвори)';
+  if (page === 'top') {
+    $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div><div class="buycols">` + pages.cols.map((c, i) => `<div class="buycol"><h4>[${i + 1}] ${c.label}</h4>${(pages[c.page] || []).map(it => row(it, 0, '')).join('')}</div>`).join('') + '</div>' + pages.top.map((it, i) => row(it, i, 6 + i)).join('');
+    return;
+  }
+  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + cur.map((it, i) => row(it, i, i + 1)).join('');
 }
 
 // ================= Физика на играча: споделеното ядро shared/physics.js (CS2: ускорение, триене, air strafing, bhop; вода, рампи, платформи) =================

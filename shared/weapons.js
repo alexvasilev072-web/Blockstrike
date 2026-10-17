@@ -91,9 +91,8 @@ export const canUse = (id, team) => { const w = WEAPONS[id]; return !!w && (!w.t
 // магазин по категории (за отбора): пистолети, помпи, картечници, автомати и снайпери
 export const BUY_CATS = [
   { id: 'se', label: 'Пистолети', like: ['pistol', 'deagle'] },
-  { id: 'sh', label: 'Пушки с помпа', like: ['shotgun'] },
-  { id: 'sm', label: 'Картечници', like: ['smg'] },
-  { id: 'ri', label: 'Автомати и снайпери', like: ['rifle', 'sniper'] },
+  { id: 'mid', label: 'Средна класа', like: ['shotgun', 'smg'] },       // помпи и картечници
+  { id: 'ri', label: 'Автомати', like: ['rifle', 'sniper'] },           // автомати и снайпери
 ];
 export const weaponsOfCat = (cat, team) => Object.entries(WEAPONS).filter(([id, w]) => cat.like.includes(w.like) && (w.slot === 'pr' || w.slot === 'se') && w.price > 0 && canUse(id, team)).sort((a, b) => a[1].price - b[1].price).map(([id]) => id);
 // любим инвентар по подразбиране (за всеки отбор): основно, пистолет, гранати, броня, kit

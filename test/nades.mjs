@@ -7,7 +7,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m)
 const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 30); i++) { fake += 33; room.tick(fake); } };
 
 function setup() {
-  const room = new Room('NADE' + Math.random().toString(36).slice(2, 5)); room.mapId = 'desert';
+  const room = new Room('NADE' + Math.random().toString(36).slice(2, 5)); room.mapId = 'dunes';
   const a = room.addBot('att', 'easy'), b = room.addBot('def', 'easy'), c = room.addBot('def', 'easy');
   for (const p of [a, b, c]) { p.bot = null; p.ready = true; }                // статични играчи без ИИ
   room.emit = () => { };

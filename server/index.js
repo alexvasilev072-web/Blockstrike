@@ -17,9 +17,12 @@ const TS = process.env.BS_TS ? Number(process.env.BS_TS) : TEST ? 0.25 : 1;
 
 // ---------- Карти ----------
 const MAPS = {};
-for (const f of fs.readdirSync(path.join(ROOT, 'server/maps')).sort()) {
-  if (!f.endsWith('.json')) continue;
-  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'server/maps', f), 'utf8'));
+// в тестов режим се зарежда и малката тестова арена от test/maps (за автоматичните проверки със зададени координати)
+const MAP_FILES = fs.readdirSync(path.join(ROOT, 'server/maps')).sort().map(f => path.join(ROOT, 'server/maps', f));
+if (TEST) for (const f of fs.readdirSync(path.join(ROOT, 'test/maps')).sort()) MAP_FILES.push(path.join(ROOT, 'test/maps', f));
+for (const file of MAP_FILES) {
+  if (!file.endsWith('.json')) continue;
+  const json = JSON.parse(fs.readFileSync(file, 'utf8'));
   const world = World.fromMap(json);
   const bsp = json.type === 'bsp' ? new Bsp(json) : null;     // GoldSrc карта: колизията е по clipnode hull-овете
   for (const side of ['att', 'def']) {
@@ -106,7 +109,7 @@ class Room {
     this.code = code;
     this.players = new Map();
     this.hostId = null;
-    this.mapId = 'desert';
+    this.mapId = 'dunes';
     this.mode = 'comp';          // comp | parkour | surf
     this.best = new Map();       // класация на стаята (parkour/surf): id -> {name,time}
     this.phase = 'lobby'; // lobby | freeze | live | end | matchover

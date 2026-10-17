@@ -55,22 +55,6 @@ ok(ev.includes('waterjump'), 'при по-висок ръб сработва wat
   ok(B5.pos.x > 10.4 && B5.onGround && B5.pos.y >= 3 - 0.01, `излиза и върху кей с 1 блок над водата (y=${B5.pos.y.toFixed(2)})`);
 }
 
-console.log('— Вода в картите: има изход');
-{
-  const load = id => World.fromMap(JSON.parse(fs.readFileSync(new URL('../server/maps/' + id + '.json', import.meta.url), 'utf8')));
-  // oasis в пустинята: басейн 2x1 на y=0; отвън подът е с 1 блок по-висок
-  const W = load('desert');
-  for (const [dx, dz, yaw] of [[1, 0, -Math.PI / 2], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [0, -1, 0]]) {
-    const B = body(23.5 + dx * 0.4, 0.0, 13.5 + dz * 0.0); B.yaw = yaw; B.onGround = true; run(B, W, 0.3);
-    run(B, W, 2.5, { ...IDLE, fz: -1, jumpHeld: true, jumpNow: false });
-    ok(B.pos.y >= 0.99 && B.onGround && !B.inWater, `излиза от басейна в посока (${dx},${dz}) (y=${B.pos.y.toFixed(2)}, x=${B.pos.x.toFixed(1)}, z=${B.pos.z.toFixed(1)})`);
-  }
-  // пристанище: морето е с дъно y=0, вода y=1, кеят е на y=1 -> краката на y=2
-  const H = load('harbor'); const B = body(8.5, 1, 30); B.yaw = -Math.PI / 2; B.onGround = true;
-  const ev = run(B, H, 4, { ...IDLE, fz: -1, jumpHeld: true });
-  ok(B.pos.x > 12.4 && B.pos.y >= 1.99 && B.onGround, `от морето се излиза на кея (x=${B.pos.x.toFixed(1)}, y=${B.pos.y.toFixed(2)})`);
-}
-
 console.log('— Слуз, лед, платформа');
 {
   const W = world(30, 20, 30, [['concrete', 0, 0, 0, 29, 0, 29], ['slime', 5, 0, 5, 7, 0, 7], ['slick', 12, 0, 0, 29, 0, 29]]);

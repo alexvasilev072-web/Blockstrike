@@ -1,4 +1,4 @@
-// Генератор на големите карти за 5 срещу 5: „Старият град“ (oldtown) и „Индустриален комплекс“ (factory) -> server/maps/*.json
+// Генератор на картите за 5 срещу 5 (Пясъчни дворове, Тераси, Стар квартал) -> server/maps/*.json
 //   node tools/genbig.mjs
 // Картата е решетка 12 x 12 клетки по 8 блока (96 x 96). Всяка клетка е тип по буква; генераторът я разгръща в блокове.
 // Легенда:  # плътна сграда  b сграда с врати (може да се влезе)  . улица  c купчина щайги  w фонтан (вода)  p платформа със стълби (снайпер)
@@ -92,50 +92,6 @@ function build(theme, grid, extra = {}) {
   return { size: [SIZE, 12, SIZE], ops: m.ops, spawns, sites: sitesOut, ...extra };
 }
 
-// ======================= СТАРИЯТ ГРАД =======================
-const OLD = [
-  '####CCCC####',
-  '#AA......BB#',
-  '#AA#b..b#BB#',
-  '#..#b..b#..#',
-  '#....cwc...#',
-  '##.##..##.##',
-  '#b.b....b.b#',
-  '##.##..##.##',
-  '#x...pp...x#',
-  '#..##..##..#',
-  '#..........#',
-  '##..SSSS..##',
-];
-const oldTown = build({ floor: 'sand', street: 'road', wall: 'sandstone', accent: 'brick', crate: 'crate', siteIn: 'sand', lamps: [[8, 8], [87, 8], [8, 87], [87, 87], [40, 40], [55, 55]] }, OLD, {
-  id: 'oldtown', name: 'Старият град',
-  description: 'Голям град за 5 срещу 5: три пътя (дълъг запад, среден площад, дълъг изток), две бомбени точки на север, платформа за снайперист в средата.',
-  maxPlayers: 10, order: -2, big: true,
-  env: { sky: '#8fd0ff', fog: [70, 190], ambient: 0.28, sun: 1, ground: '#b59d6a' },
-});
-
-// ======================= ИНДУСТРИАЛЕН КОМПЛЕКС =======================
-const FAC = [
-  '####CCCC####',
-  '#AAA....BBB#',
-  '#AAA#..#BBB#',
-  '#..K#..#K..#',
-  '#.K......K.#',
-  '#.K#rrrr#K.#',
-  '#...r..r...#',
-  '#K.#r..r#.K#',
-  '#K...TT...K#',
-  '##.#....#.##',
-  '#..K....K..#',
-  '##..SSSS..##',
-];
-const factory = build({ floor: 'concrete', street: 'metal', wall: 'concrete', accent: 'rust', crate: 'crate', siteIn: 'concrete', hall: true, hallWall: 'metal', lamps: [[12, 12], [83, 12], [12, 83], [83, 83], [47, 47], [47, 30]] }, FAC, {
-  id: 'factory', name: 'Индустриален комплекс',
-  description: 'Голям завод за 5 срещу 5: хангар (A), двор с контейнери (B), релси и резервоари в средата. Много ъгли и прикрития.',
-  maxPlayers: 10, order: -1, big: true,
-  env: { sky: '#9aa7b5', fog: [60, 170], ambient: 0.3, sun: 0.9, ground: '#6f7680' },
-});
-
 // ======================= ОРИГИНАЛНИ КАРТИ ЗА 5 СРЕЩУ 5 =======================
 // Това са наши собствени карти (имена, разположение и украса са оригинални). Идеята за „двойка бомбени точки + среден проход + дълъг път“
 // е обща за тактическите игри; не копираме нищо от чужди карти.
@@ -209,6 +165,4 @@ const quar = build({ floor: 'dirt', street: 'cobble', wall: 'brick', accent: 'st
 writeMap(path.join(OUT, 'dunes.json'), dunes);
 writeMap(path.join(OUT, 'terraces.json'), terr);
 writeMap(path.join(OUT, 'quarter.json'), quar);
-writeMap(path.join(OUT, 'oldtown.json'), oldTown);
-writeMap(path.join(OUT, 'factory.json'), factory);
-console.log('Готово: oldtown, factory, dunes, terraces, quarter (96 x 96)');
+console.log('Готово: dunes, terraces, quarter (96 x 96)');
