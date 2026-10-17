@@ -14,7 +14,6 @@ import { initSkins } from './skins.js';
 import { drawRadar, markRadarDirty } from './radar.js';
 import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
-import { initLoadout, loadout } from './loadout.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
 import { weaponIcon } from './wicons.js';
@@ -660,7 +659,7 @@ const alive = () => S.me.hp > 0;
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 initSkins({ onChange: () => sendLoadout() });
 function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {}, char: loadChar() }); } catch { } }
-initHeroes({ onChange: () => sendLoadout() }); initLoadout();
+initHeroes({ onChange: () => sendLoadout() });
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
@@ -957,53 +956,33 @@ function buyOwn(id) {
 }
 function buyPrice(id) { return id === 'armor' ? 650 : id === 'kit' ? 400 : NADE_IDS.includes(id) ? nadePrice(id, S.me.tm) : WEAPONS[id].price; }
 function buyPages() {
-  const m = S.me, team = m.tm, L = loadout[team], pages = { top: [] };
-  const fav = (slot, label) => { const id = L[slot]; return id && canUse(id, team) ? { id, label: label + ': ' + WEAPONS[id].name } : { none: true, label: label + ': не е избрано (Инвентар в менюто)' }; };
-  pages.top.push({ ...fav('pr', 'Любимо основно'), k: 'fav' }, { ...fav('se', 'Любим пистолет'), k: 'fav' }, { kit: true, label: 'Любим комплект: броня' + (team === 'def' ? ' + kit' : '') + ' + гранати', k: 'kit' });
-  // колони като в CS2: 1 екипировка, 2 пистолети, 3 средна класа, 4 автомати, 5 гранати; 6–8 са любимите
-  pages.cols = [{ page: 'gear', label: 'Екипировка' }, ...BUY_CATS.slice(0, 1).map(c => ({ page: c.id, label: c.label })), ...BUY_CATS.slice(1).map(c => ({ page: c.id, label: c.label })), { page: 'nade', label: 'Гранати' }];
-  pages.cols = [pages.cols[0], pages.cols[1], pages.cols[2], pages.cols[3], pages.cols[4]];
+  const team = S.me.tm, pages = { top: [] };
   for (const c of BUY_CATS) pages[c.id] = weaponsOfCat(c, team).map(id => ({ id, label: WEAPONS[id].name }));
   pages.gear = [{ id: 'armor', label: 'Броня' }, ...(team === 'def' ? [{ id: 'kit', label: 'Defuse kit' }] : [])];
   pages.nade = ['grenade', 'flash', 'smoke', 'molotov'].map(id => ({ id, label: WEAPONS[id].name }));
+  // колони като в CS2: 1 екипировка, 2 пистолети, 3 средна класа, 4 автомати, 5 гранати
+  pages.cols = [{ page: 'gear', label: 'Екипировка' }, ...BUY_CATS.map(c => ({ page: c.id, label: c.label })), { page: 'nade', label: 'Гранати' }];
   return pages;
-}
-function kitPlan() {   // какво купува „любимият комплект“ (по реда на важност)
-  const L = loadout[S.me.tm], out = [];
-  if (L.armor) out.push('armor'); for (const k of L.nades) out.push(NADE_W[k]); if (S.me.tm === 'def' && L.kit) out.push('kit'); return out;
 }
 function buyKey(e) {
   if (!/^Digit[0-9]$/.test(e.code)) return false;
-  const n = +e.code[5], pages = buyPages(), cur = pages[S.buyPage] || pages.top;
+  const n = +e.code[5], pages = buyPages();
   if (n === 0) { if (S.buyPage !== 'top') { S.buyPage = 'top'; renderBuy(); } return true; }
-  if (S.buyPage === 'top' || !S.buyPage) {                                  // главна страница: 1–5 колона, 6–8 любими
-    if (n <= 5) { S.buyPage = pages.cols[n - 1].page; renderBuy(); return true; }
-    const f = pages.top[n - 6]; if (!f) return true;
-    if (f.k === 'kit') { for (const id of kitPlan()) if (!buyOwn(id)) socket.emit('buy', id); return true; }
-    if (f.none) { toast('Избери любими оръжия от „Инвентар“ в главното меню', 2500); return true; }
-    socket.emit('buy', f.id); return true;
-  }
-  const it = cur[n - 1]; if (!it) return true;
-  if (it.page) { S.buyPage = it.page; renderBuy(); return true; }
-  if (it.k === 'kit') { for (const id of kitPlan()) if (!buyOwn(id)) socket.emit('buy', id); return true; }
-  if (it.none) { toast('Избери любими оръжия от „Инвентар“ в главното меню', 2500); return true; }
-  socket.emit('buy', it.id); return true;
+  if (S.buyPage === 'top' || !S.buyPage) { if (pages.cols[n - 1]) { S.buyPage = pages.cols[n - 1].page; renderBuy(); } return true; }
+  const it = (pages[S.buyPage] || [])[n - 1]; if (it) socket.emit('buy', it.id);
+  return true;
 }
 function renderBuy() {
-  const m = S.me, pages = buyPages(), page = S.buyPage || 'top', cur = pages[page] || pages.top;
-  const row = (it, i, num) => {
-    if (it.k === 'kit') { const plan = kitPlan().filter(id => !buyOwn(id)), cost = plan.reduce((s, id) => s + buyPrice(id), 0); return `<div class="buyrow ${!plan.length ? 'no' : ''}"><span>[${num}] ${it.label}</span><span>${plan.length ? '<b>$' + cost + '</b>' : '<em>имаш</em>'}</span></div>`; }
-    if (it.none) return `<div class="buyrow no"><span>[${num}] ${it.label}</span><span></span></div>`;
+  const m = S.me, pages = buyPages(), page = S.buyPage || 'top', cur = pages[page] || [];
+  const row = (it, num) => {
     const own = buyOwn(it.id), price = buyPrice(it.id), blocked = NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES;
     return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>${num ? '[' + num + '] ' : ''}${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
   };
   $('#buy').classList.toggle('wide', page === 'top');
-  $('#buyHelp').textContent = page === 'top' ? '(1–5 – колона, 6–8 – любими, B – затвори)' : '(0 – назад, B – затвори)';
-  if (page === 'top') {
-    $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div><div class="buycols">` + pages.cols.map((c, i) => `<div class="buycol"><h4>[${i + 1}] ${c.label}</h4>${(pages[c.page] || []).map(it => row(it, 0, '')).join('')}</div>`).join('') + '</div>' + pages.top.map((it, i) => row(it, i, 6 + i)).join('');
-    return;
-  }
-  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + cur.map((it, i) => row(it, i, i + 1)).join('');
+  $('#buyHelp').textContent = page === 'top' ? '(1–5 – колона, B – затвори)' : '(0 – назад, B – затвори)';
+  const head = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>`;
+  if (page === 'top') { $('#buyList').innerHTML = head + '<div class="buycols">' + pages.cols.map((c, i) => `<div class="buycol"><h4>[${i + 1}] ${c.label}</h4>${(pages[c.page] || []).map(it => row(it, '')).join('')}</div>`).join('') + '</div>'; return; }
+  $('#buyList').innerHTML = head + cur.map((it, i) => row(it, i + 1)).join('');
 }
 
 // ================= Физика на играча: споделеното ядро shared/physics.js (CS2: ускорение, триене, air strafing, bhop; вода, рампи, платформи) =================
@@ -1174,7 +1153,7 @@ function frame(nowMs) {
   camera.rotation.set(cpitch, cyaw, 0); updateSky(dt);
   const spd3 = Math.hypot(S.vel.x, S.vel.y, S.vel.z), fast = clamp((spd3 - 12) / 40, 0, 1);
   const specScoped = !!(specT && specT.sc && WEAPONS[specT.w]?.scoped);
-  const targetFov = (S.scoped && isAlive) || specScoped ? 22 : settings.fov + (isAlive ? fast * 14 : 0);
+  const zoomW = specScoped && !isAlive ? specT.w : S.me.w, targetFov = (S.scoped && isAlive) || specScoped ? (WEAPONS[zoomW]?.zoom || 22) : settings.fov + (isAlive ? fast * 14 : 0);
   audio.setWind(isAlive ? fast : 0);
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }
   const fwd = _lf.set(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -1188,7 +1167,7 @@ function frame(nowMs) {
   vmod.visible = (isAlive ? !S.scoped : !!specT && !specScoped) && (!dbg || S.debugVM);
   vmod.update(dt, now, isAlive || !specT ? { speed: S.speed, onGround: S.onGround, crouchAmt: S.crouchAmt, mdx: S.mdx, mdy: S.mdy } : { speed: S.specSpeed, onGround: S.specG, crouchAmt: S.specCr, mdx: 0, mdy: 0 });
   S.mdx = 0; S.mdy = 0;
-  $('#scope').style.display = (S.scoped && isAlive) || specScoped ? 'block' : 'none';
+  $('#scope').style.display = ((S.scoped && isAlive) || specScoped) && !WEAPONS[zoomW]?.zoom ? 'block' : 'none';
   $('#cross').style.display = (S.scoped && isAlive) || specScoped || (!isAlive && !specT) ? 'none' : '';
 
   const pf1 = performance.now();

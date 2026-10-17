@@ -137,7 +137,7 @@ export class Bot {
   buy() {
     const r = this.room, p = this.p, d = this.d; this.bought = true;
     const rich = p.money, pistolRound = r.round === 1 || r.round === CFG.HALF + 1, tryBuy = it => r.buy(p, it);
-    let awps = 0; for (const q of r.players.values()) if (q.team === p.team && q.alive && WEAPONS[q.inv.pr]?.scoped) awps++;
+    let awps = 0; for (const q of r.players.values()) if (q.team === p.team && q.alive && WEAPONS[q.inv.pr]?.like === 'sniper') awps++;
     if (pistolRound) { if (p.money >= 650 && (this.diffId === 'hard' || this.diffId === 'expert' || p.team === 'def')) tryBuy('armor'); else if (p.money >= 700) tryBuy('deagle'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }
     if (p.inv.pr) { if (rich >= 650) tryBuy('armor'); if (d.nades && p.money >= 300) tryBuy('grenade'); if (d.nades && p.money >= 200) tryBuy('flash'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }   // основното оръжие е запазено от миналия рунд
     // основно оръжие по отбор и пари (оставя се за броня); най-добрата пушка, иначе картечница/помпа, иначе по-добър пистолет
@@ -364,7 +364,7 @@ export class Bot {
     // екстра: лекото движение на целта между тиковете се компенсира от самото следене (hitscan)
     const engaged = now >= m.engageAt;
     this.lookAt = this.aimPt; this.engaged = engaged; p.using = false;
-    const awp = !!w.scoped, shotgun = w.like === 'shotgun', spray = !!w.auto;
+    const awp = w.like === 'sniper', shotgun = w.like === 'shotgun', spray = !!w.auto;
     // оптика
     this.scoped = awp;
     // движение в бой
@@ -425,10 +425,10 @@ export class Bot {
     if (now < p.nextShot || p.reloadEnd > now) return;
     const idx = now - p.lastShot > w.rreset * 1000 ? 0 : p.shotIdx, [ry, rp] = recoilAt(p.weapon, idx), v = this.view, c = this.d.recoil;
     const before = p.ammo[p.weapon]?.mag;
-    r.shoot(p, { yw: v.yaw - ry * c, pt: v.pitch - rp * c, sc: this.scoped && !!w.scoped, d: 0 });
+    r.shoot(p, { yw: v.yaw - ry * c, pt: v.pitch - rp * c, sc: this.scoped && w.like === 'sniper', d: 0 });
     if (p.ammo[p.weapon] && p.ammo[p.weapon].mag < before) {
       this.burstLeft--;
-      if (this.burstLeft <= 0) this.pauseUntil = now + rnd(this.d.pause[0], this.d.pause[1]) * 1000 * (w.auto ? 1 : 0.6) + (w.scoped ? 300 : 0);
+      if (this.burstLeft <= 0) this.pauseUntil = now + rnd(this.d.pause[0], this.d.pause[1]) * 1000 * (w.auto ? 1 : 0.6) + (w.like === 'sniper' ? 300 : 0);
     }
   }
 
@@ -585,7 +585,7 @@ export class Bot {
       stepBody(B, { can: true, fx, fz, crouch: inp.crouch, walk: inp.walk, jumpNow: inp.jump, jumpHeld: false }, ctx, STEP);
       inp.jump = false;
     }
-    p.x = B.pos.x; p.y = B.pos.y; p.z = B.pos.z; p.g = B.onGround; p.cr = B.crouching; p.spd = B.speed; p.wk = !!inp.walk && B.speed > 0.5; p.sc = this.scoped && !!WEAPONS[p.weapon]?.scoped;
+    p.x = B.pos.x; p.y = B.pos.y; p.z = B.pos.z; p.g = B.onGround; p.cr = B.crouching; p.spd = B.speed; p.wk = !!inp.walk && B.speed > 0.5; p.sc = this.scoped && WEAPONS[p.weapon]?.like === 'sniper';
     if (p.g) p.lastGround = { x: p.x, y: p.y, z: p.z };
     this.pushHist(now);
   }

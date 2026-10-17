@@ -66,6 +66,7 @@ Object.assign(WEAPONS, {
   p250:       V('pistol',  { name: 'П250',          dmg: 38, ratio: 1.28, rate: 0.15,  mag: 13, reserve: 26,  price: 300,  reward: 300, pitch: 0.95 }),
   fiveseven:  V('pistol',  { name: 'Файв-севън',    team: 'def', dmg: 32, ratio: 1.82, rate: 0.15,  mag: 20, reserve: 100, price: 500,  reward: 300, pitch: 1.2 }),
   tec9:       V('pistol',  { name: 'Тек-9',         team: 'att', dmg: 33, ratio: 1.81, rate: 0.12,  mag: 18, reserve: 90,  price: 500,  reward: 300, pitch: 1.05, auto: true, spread: spr('pistol', 1.3) }),
+  p2000:      V('pistol',  { name: 'П2000',         team: 'def', dmg: 35, ratio: 1.01, rate: 0.17, mag: 13, reserve: 52,  price: 200,  reward: 300, pitch: 0.9 }),
   // картечници
   mac10:      V('smg',     { name: 'Мак-10',        team: 'att', dmg: 29, ratio: 1.15, rate: 0.075, mag: 30, reserve: 100, price: 1050, reward: 600, pitch: 1.1, speed: 6.0 }),
   mp7:        V('smg',     { name: 'МП7',           dmg: 29, ratio: 1.25, rate: 0.08,  mag: 30, reserve: 120, price: 1500, reward: 600, pitch: 0.95, recoil: rec('smg', 0.9) }),
@@ -77,6 +78,8 @@ Object.assign(WEAPONS, {
   m4a1s:      V('rifle',   { name: 'М4А1-С',        team: 'def', dmg: 38, ratio: 1.4,  rate: 0.10,  mag: 20, reserve: 40, price: 2900, reward: 300, pitch: 0.7, speed: 5.6, recoil: rec('rifle', 0.75), spread: spr('rifle', 0.85) }),
   galil:      V('rifle',   { name: 'Галил АР',      team: 'att', dmg: 30, ratio: 1.55, rate: 0.09,  mag: 35, reserve: 90, price: 1800, reward: 300, pitch: 1.0, speed: 5.4 }),
   famas:      V('rifle',   { name: 'ФАМАС',         team: 'def', dmg: 30, ratio: 1.4,  rate: 0.09,  mag: 25, reserve: 90, price: 2050, reward: 300, pitch: 1.2, speed: 5.5 }),
+  aug:        V('rifle',   { name: 'АУГ',           team: 'def', dmg: 28, ratio: 1.8,  rate: 0.09, mag: 30, reserve: 90,  price: 3300, reward: 300, pitch: 1.05, speed: 5.5, scoped: 4.6, zoom: 40, spread: { ...spr('rifle', 0.8), unscoped: WEAPONS.rifle.spread.stand * 0.85 }, recoil: rec('rifle', 0.8) }),
+  sg553:      V('rifle',   { name: 'СГ 553',        team: 'att', dmg: 30, ratio: 2.0,  rate: 0.11, mag: 30, reserve: 90,  price: 3000, reward: 300, pitch: 1.0, speed: 5.4, scoped: 4.6, zoom: 40, spread: { ...spr('rifle', 0.9), unscoped: WEAPONS.rifle.spread.stand * 0.95 }, recoil: rec('rifle', 0.95) }),
   // пушки с помпа
   xm1014:     V('shotgun', { name: 'ХМ1014',        dmg: 20, ratio: 1.6, range: 0.7, rate: 0.35, mag: 7, reserve: 32, price: 2000, reward: 900, auto: true, pellets: 6, pitch: 0.9 }),
   mag7:       V('shotgun', { name: 'МАГ-7',         team: 'def', dmg: 30, ratio: 1.5, range: 0.72, rate: 0.85, mag: 5, reserve: 32, price: 1300, reward: 900, pellets: 8, pitch: 1.1 }),
@@ -95,20 +98,6 @@ export const BUY_CATS = [
   { id: 'ri', label: 'Автомати', like: ['rifle', 'sniper'] },           // автомати и снайпери
 ];
 export const weaponsOfCat = (cat, team) => Object.entries(WEAPONS).filter(([id, w]) => cat.like.includes(w.like) && (w.slot === 'pr' || w.slot === 'se') && w.price > 0 && canUse(id, team)).sort((a, b) => a[1].price - b[1].price).map(([id]) => id);
-// любим инвентар по подразбиране (за всеки отбор): основно, пистолет, гранати, броня, kit
-export const DEFAULT_LOADOUT = { att: { pr: 'rifle', se: 'glock', nades: ['he', 'flash'], armor: true, kit: false }, def: { pr: 'm4a4', se: 'usp', nades: ['he', 'flash'], armor: true, kit: true } };
-export function cleanLoadout(l) {
-  const out = JSON.parse(JSON.stringify(DEFAULT_LOADOUT));
-  for (const t of ['att', 'def']) {
-    const x = l && l[t]; if (!x || typeof x !== 'object') continue;
-    if (x.pr === null || (typeof x.pr === 'string' && WEAPONS[x.pr]?.slot === 'pr' && canUse(x.pr, t))) out[t].pr = x.pr;
-    if (x.se === null || (typeof x.se === 'string' && WEAPONS[x.se]?.slot === 'se' && canUse(x.se, t))) out[t].se = x.se;
-    if (Array.isArray(x.nades)) out[t].nades = ['he', 'flash', 'smoke', 'molo'].filter(k => x.nades.includes(k));
-    out[t].armor = x.armor !== false; out[t].kit = t === 'def' && x.kit !== false;
-  }
-  return out;
-}
-
 // Нож: left = бърз удар, right = силен удар; back = множител при удар в гръб
 export const KNIFE = {
   left:  { dmg: 40, back: 90,  rate: 0.45, range: 2.0 },
