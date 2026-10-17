@@ -67,6 +67,9 @@ if (typeof document !== 'undefined') {
   for (const ev of ['pointerdown', 'keydown', 'focus', 'visibilitychange']) addEventListener(ev, () => { if (ctx && ctx.state !== 'running') { try { ctx.resume(); } catch { } } }, { capture: true, passive: true });
 }
 
+// смяна/отваряне на аудио устройство (напр. микрофон за гласов чат) може да спре изхода – връщаме го веднага
+try { navigator.mediaDevices?.addEventListener('devicechange', () => { if (ctx && ctx.state !== 'running') { try { ctx.resume(); } catch { } } setTimeout(heal, 300); setTimeout(heal, 1200); }); } catch { }
+
 function ensure() {
   if (ctx) { if (ctx.state !== 'running') ctx.resume(); return true; }
   try {

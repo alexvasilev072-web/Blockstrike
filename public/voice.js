@@ -77,20 +77,23 @@ export function initVoice({ socket, getMyId, getPlayers, canTalk, settings, onCh
   async function ensureMic() {
     if (track && track.readyState === 'live') return true;
     try {
-      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true }; if (settings.micId) audio.deviceId = { exact: settings.micId };
+      const audio = { echoCancellation: false, noiseSuppression: true, autoGainControl: false };    // без AEC: така Windows не включва „режим за разговор“ и не заглушава останалите звуци if (settings.micId) audio.deviceId = { exact: settings.micId };
       stream = await navigator.mediaDevices.getUserMedia({ audio });
       track = stream.getAudioTracks()[0]; track.enabled = false; refreshDevices(); return true;
     } catch (e) {
       stream = track = null; onError?.(e && e.name === 'NotAllowedError' ? 'Няма разрешение за микрофона' : 'Микрофонът не е достъпен'); return false;
     }
   }
+  // микрофонът се затваря малко след пускане на клавиша: отворен микрофон кара Windows/браузъра да приглушава или спира звука на играта
+  let idleT = 0;
+  function releaseMic() { if (ptt || !stream) return; stream.getTracks().forEach(t => t.stop()); stream = track = null; for (const P of peers.values()) P.sent = null; applyPolicy(); }
   async function setPtt(down) {
     if (!settings.voice) return;
     if (down && !ptt) {
-      ptt = true; if (!(await ensureMic()) || !ptt) { ptt = false; return; }
+      clearTimeout(idleT); ptt = true; if (!(await ensureMic()) || !ptt) { ptt = false; return; }
       track.enabled = true; applyPolicy(); socket.emit('vc:talk', true); talking.add(getMyId()); onChange();
     } else if (!down && ptt) {
-      ptt = false; if (track) track.enabled = false; socket.emit('vc:talk', false); talking.delete(getMyId()); onChange();
+      ptt = false; if (track) track.enabled = false; clearTimeout(idleT); idleT = setTimeout(releaseMic, 400); socket.emit('vc:talk', false); talking.delete(getMyId()); onChange();
     }
   }
   function setMic(id) { settings.micId = id || ''; if (stream) stream.getTracks().forEach(t => t.stop()); stream = track = null; for (const P of peers.values()) P.sent = null; applyPolicy(); }
