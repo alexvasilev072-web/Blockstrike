@@ -12,6 +12,7 @@ const human = room.addPlayer(sock, 'Хума'); human.team = 'att';
 const mate = room.addBot('att', 'easy'), enemy = room.addBot('def', 'easy'); room.addBot('def', 'easy'); room.addBot('att', 'easy');
 room.startMatch(); human.ready = true; adv(room, 14);
 ok(room.phase === 'live', 'рундът е в live');
+for (const b of room.players.values()) if (b.bot) b.bot.update = () => { };       // ботовете стоят (иначе стрелят и броячът на патроните се мени)
 const me = () => [...ev].reverse().find(e => e[0] === 'me')?.[1];
 
 console.log('— Наблюдение: данни за наблюдавания');

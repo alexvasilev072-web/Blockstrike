@@ -61,30 +61,30 @@ const rec = (base, k) => { const r = WEAPONS[base].recoil; return { ...r, up: r.
 const spr = (base, k) => { const s = WEAPONS[base].spread; const o = {}; for (const key in s) o[key] = s[key] * k; return o; };
 Object.assign(WEAPONS, {
   // пистолети
-  glock:      V('pistol',  { name: 'Глок-18',       team: 'att', dmg: 27, ratio: 0.9,  rate: 0.12,  mag: 20, reserve: 120, price: 200,  reward: 300, pitch: 1.1 }),
-  usp:        V('pistol',  { name: 'USP-S',         team: 'def', dmg: 35, ratio: 1.0,  rate: 0.16,  mag: 12, reserve: 72,  price: 200,  reward: 300, pitch: 0.85, spread: spr('pistol', 0.8) }),
-  p250:       V('pistol',  { name: 'П250',          dmg: 38, ratio: 1.28, rate: 0.15,  mag: 13, reserve: 52,  price: 300,  reward: 300, pitch: 0.95 }),
-  fiveseven:  V('pistol',  { name: 'Файв-севън',    team: 'def', dmg: 32, ratio: 1.5,  rate: 0.15,  mag: 20, reserve: 100, price: 500,  reward: 300, pitch: 1.2 }),
-  tec9:       V('pistol',  { name: 'Тек-9',         team: 'att', dmg: 33, ratio: 1.0,  rate: 0.12,  mag: 18, reserve: 90,  price: 500,  reward: 300, pitch: 1.05, auto: true, spread: spr('pistol', 1.3) }),
+  glock:      V('pistol',  { name: 'Глок-18',       team: 'att', dmg: 28, ratio: 0.94, rate: 0.15,  mag: 20, reserve: 120, price: 200,  reward: 300, pitch: 1.1 }),
+  usp:        V('pistol',  { name: 'USP-S',         team: 'def', dmg: 35, ratio: 1.01, rate: 0.17,  mag: 12, reserve: 24,  price: 200,  reward: 300, pitch: 0.85, spread: spr('pistol', 0.8) }),
+  p250:       V('pistol',  { name: 'П250',          dmg: 38, ratio: 1.28, rate: 0.15,  mag: 13, reserve: 26,  price: 300,  reward: 300, pitch: 0.95 }),
+  fiveseven:  V('pistol',  { name: 'Файв-севън',    team: 'def', dmg: 32, ratio: 1.82, rate: 0.15,  mag: 20, reserve: 100, price: 500,  reward: 300, pitch: 1.2 }),
+  tec9:       V('pistol',  { name: 'Тек-9',         team: 'att', dmg: 33, ratio: 1.81, rate: 0.12,  mag: 18, reserve: 90,  price: 500,  reward: 300, pitch: 1.05, auto: true, spread: spr('pistol', 1.3) }),
   // картечници
-  mac10:      V('smg',     { name: 'Мак-10',        team: 'att', dmg: 29, ratio: 0.9,  rate: 0.075, mag: 30, reserve: 100, price: 1050, reward: 600, pitch: 1.1 }),
-  mp7:        V('smg',     { name: 'МП7',           dmg: 29, ratio: 1.2,  rate: 0.08,  mag: 30, reserve: 120, price: 1500, reward: 600, pitch: 0.95, recoil: rec('smg', 0.9) }),
-  ump:        V('smg',     { name: 'УМП-45',        dmg: 35, ratio: 1.3,  rate: 0.09,  mag: 25, reserve: 100, price: 1200, reward: 600, pitch: 0.8 }),
-  p90:        V('smg',     { name: 'П90',           dmg: 26, ratio: 1.4,  rate: 0.07,  mag: 50, reserve: 100, price: 2350, reward: 300, pitch: 1.0, speed: 5.4, recoil: rec('smg', 1.1) }),
-  bizon:      V('smg',     { name: 'ПП-Бизон',      dmg: 27, ratio: 1.0,  rate: 0.076, mag: 64, reserve: 120, price: 1400, reward: 600, pitch: 1.15 }),
+  mac10:      V('smg',     { name: 'Мак-10',        team: 'att', dmg: 29, ratio: 1.15, rate: 0.075, mag: 30, reserve: 100, price: 1050, reward: 600, pitch: 1.1, speed: 6.0 }),
+  mp7:        V('smg',     { name: 'МП7',           dmg: 29, ratio: 1.25, rate: 0.08,  mag: 30, reserve: 120, price: 1500, reward: 600, pitch: 0.95, recoil: rec('smg', 0.9) }),
+  ump:        V('smg',     { name: 'УМП-45',        dmg: 35, ratio: 1.3,  rate: 0.09,  mag: 25, reserve: 100, price: 1200, reward: 600, pitch: 0.8, speed: 5.75 }),
+  p90:        V('smg',     { name: 'П90',           dmg: 26, ratio: 1.4,  rate: 0.07,  mag: 50, reserve: 100, price: 2350, reward: 300, pitch: 1.0, speed: 5.75, recoil: rec('smg', 1.1) }),
+  bizon:      V('smg',     { name: 'ПП-Бизон',      dmg: 27, ratio: 1.15, rate: 0.076, mag: 64, reserve: 120, price: 1400, reward: 600, pitch: 1.15, speed: 6.0 }),
   // автомати
-  m4a4:       V('rifle',   { name: 'М4А4',          team: 'def', dmg: 33, ratio: 1.4,  rate: 0.09,  mag: 30, reserve: 90, price: 3100, reward: 300, pitch: 1.1, recoil: rec('rifle', 0.9), spread: spr('rifle', 0.9) }),
-  m4a1s:      V('rifle',   { name: 'М4А1-С',        team: 'def', dmg: 33, ratio: 1.4,  rate: 0.09,  mag: 20, reserve: 40, price: 2900, reward: 300, pitch: 0.7, recoil: rec('rifle', 0.75), spread: spr('rifle', 0.85) }),
-  galil:      V('rifle',   { name: 'Галил АР',      team: 'att', dmg: 30, ratio: 1.55, rate: 0.09,  mag: 35, reserve: 90, price: 1800, reward: 300, pitch: 1.0 }),
-  famas:      V('rifle',   { name: 'ФАМАС',         team: 'def', dmg: 30, ratio: 1.4,  rate: 0.09,  mag: 25, reserve: 90, price: 2050, reward: 300, pitch: 1.2 }),
+  m4a4:       V('rifle',   { name: 'М4А4',          team: 'def', dmg: 33, ratio: 1.4,  rate: 0.09,  mag: 30, reserve: 90, price: 3100, reward: 300, pitch: 1.1, speed: 5.6, recoil: rec('rifle', 0.9), spread: spr('rifle', 0.9) }),
+  m4a1s:      V('rifle',   { name: 'М4А1-С',        team: 'def', dmg: 38, ratio: 1.4,  rate: 0.10,  mag: 20, reserve: 40, price: 2900, reward: 300, pitch: 0.7, speed: 5.6, recoil: rec('rifle', 0.75), spread: spr('rifle', 0.85) }),
+  galil:      V('rifle',   { name: 'Галил АР',      team: 'att', dmg: 30, ratio: 1.55, rate: 0.09,  mag: 35, reserve: 90, price: 1800, reward: 300, pitch: 1.0, speed: 5.4 }),
+  famas:      V('rifle',   { name: 'ФАМАС',         team: 'def', dmg: 30, ratio: 1.4,  rate: 0.09,  mag: 25, reserve: 90, price: 2050, reward: 300, pitch: 1.2, speed: 5.5 }),
   // пушки с помпа
-  xm1014:     V('shotgun', { name: 'ХМ1014',        dmg: 20, ratio: 1.0, range: 0.7, rate: 0.35, mag: 7, reserve: 32, price: 2000, reward: 900, auto: true, pellets: 6, pitch: 0.9 }),
-  mag7:       V('shotgun', { name: 'МАГ-7',         team: 'def', dmg: 30, ratio: 1.0, range: 0.72, rate: 0.85, mag: 5, reserve: 32, price: 1300, reward: 900, pellets: 8, pitch: 1.1 }),
-  sawedoff:   V('shotgun', { name: 'Рязана пушка', team: 'att', dmg: 32, ratio: 1.0, range: 0.62, rate: 0.85, mag: 7, reserve: 32, price: 1100, reward: 900, pellets: 8, pitch: 0.8, spread: spr('shotgun', 1.15) }),
+  xm1014:     V('shotgun', { name: 'ХМ1014',        dmg: 20, ratio: 1.6, range: 0.7, rate: 0.35, mag: 7, reserve: 32, price: 2000, reward: 900, auto: true, pellets: 6, pitch: 0.9 }),
+  mag7:       V('shotgun', { name: 'МАГ-7',         team: 'def', dmg: 30, ratio: 1.5, range: 0.72, rate: 0.85, mag: 5, reserve: 32, price: 1300, reward: 900, pellets: 8, pitch: 1.1 }),
+  sawedoff:   V('shotgun', { name: 'Рязана пушка', team: 'att', dmg: 32, ratio: 1.5, range: 0.62, rate: 0.85, mag: 7, reserve: 32, price: 1100, reward: 900, pellets: 8, pitch: 0.8, spread: spr('shotgun', 1.15) }),
   // снайпери
-  ssg08:      V('sniper',  { name: 'ССГ 08',        dmg: 88, ratio: 1.7, rate: 1.25, mag: 10, reserve: 90, price: 1700, reward: 300, speed: 5.4, pitch: 1.2 }),
-  scar20:     V('sniper',  { name: 'СКАР-20',       team: 'def', dmg: 80, ratio: 1.65, rate: 0.25, mag: 20, reserve: 90, price: 5000, reward: 100, speed: 4.6, pitch: 0.9, auto: false }),
-  g3sg1:      V('sniper',  { name: 'Г3СГ1',         team: 'att', dmg: 80, ratio: 1.65, rate: 0.25, mag: 20, reserve: 90, price: 5000, reward: 100, speed: 4.6, pitch: 0.9, auto: false }),
+  ssg08:      V('sniper',  { name: 'ССГ 08',        dmg: 88, ratio: 1.7, rate: 1.25, mag: 10, reserve: 90, price: 1700, reward: 300, speed: 5.75, pitch: 1.2 }),
+  scar20:     V('sniper',  { name: 'СКАР-20',       team: 'def', dmg: 80, ratio: 1.65, rate: 0.25, mag: 20, reserve: 90, price: 5000, reward: 100, speed: 5.4, pitch: 0.9, auto: false }),
+  g3sg1:      V('sniper',  { name: 'Г3СГ1',         team: 'att', dmg: 80, ratio: 1.65, rate: 0.25, mag: 20, reserve: 90, price: 5000, reward: 100, speed: 5.4, pitch: 0.9, auto: false }),
 });
 // кое оръжие на кой отбор е позволено
 export const canUse = (id, team) => { const w = WEAPONS[id]; return !!w && (!w.team || w.team === team); };
