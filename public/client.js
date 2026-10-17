@@ -17,6 +17,7 @@ import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
 import { weaponIcon } from './wicons.js';
+import { initTouch, isTouchDevice } from './touch.js';
 import { Ragdoll, rememberRest, resetRagdollPose, applyRagdoll } from './ragdoll.js';
 import { keyLabel } from './settings.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
@@ -671,6 +672,7 @@ const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2,
 initSkins({ onChange: () => sendLoadout() });
 function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {}, char: loadChar() }); } catch { } }
 initHeroes({ onChange: () => sendLoadout() });
+if (isTouchDevice()) { S.touch = true; initTouch({ S, settings, onMenu: () => { S.locked = false; releaseInputs(); socket.emit('use', false); updatePause(); } }); }
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
@@ -804,6 +806,11 @@ function lockFailed() {   // Chrome не позволява pointer lock вед�
 }
 function requestLock() {
   audio.init(); $('#pauseNote').textContent = '';
+  if (S.touch) {                                   // телефон: няма pointer lock – „хванат“ е, когато няма меню
+    S.locked = true; S.everLocked = true; releaseInputs();
+    if (!S.sentReady) { S.sentReady = true; socket.emit('ready'); }
+    updatePause(); return;
+  }
   try { const p = canvas.requestPointerLock?.(); if (p && p.catch) p.catch(lockFailed); } catch { lockFailed(); }
   setTimeout(() => { if (!S.locked) lockFailed(); }, 800);
 }
@@ -954,7 +961,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'KeyY') { e.preventDefault(); openChat(false); }
   else if (e.code === 'KeyU') { e.preventDefault(); openChat(true); }
 });
-function openBuy() { S.buyOpen = true; S.buySig = ''; $('#buy').classList.remove('hidden'); renderBuy(); releaseInputs(); socket.emit('use', false); if (document.pointerLockElement) document.exitPointerLock(); updatePause(); }
+function openBuy() { if (S.touch) S.locked = false; S.buyOpen = true; S.buySig = ''; $('#buy').classList.remove('hidden'); renderBuy(); releaseInputs(); socket.emit('use', false); if (document.pointerLockElement) document.exitPointerLock(); updatePause(); }
 function closeBuy() { const was = S.buyOpen; S.buyOpen = false; $('#buy').classList.add('hidden'); if (was && S.inGame && !S.locked) requestLock(); updatePause(); }
 // Магазин: главна страница (любимо основно, любим пистолет, любим комплект, категории); цифрите избират, 0 е „назад“
 const GEAR = [['armor', 'Броня', 650], ['kit', 'Defuse kit', 400]];
@@ -986,6 +993,7 @@ function renderBuy() {
   $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div><div class="buycols">` +
     pages.cols.map(c => `<div class="buycol"><h4>${c.label}</h4>${(pages[c.page] || []).map(btn).join('')}</div>`).join('') + '</div>';
 }
+$('#buyClose').onclick = () => closeBuy();
 $('#buyList').addEventListener('click', e => { const b = e.target.closest('[data-buy]'); if (b && !b.classList.contains('no')) { socket.emit('buy', b.dataset.buy); } });
 
 // ================= Физика на играча: споделеното ядро shared/physics.js (CS2: ускорение, триене, air strafing, bhop; вода, рампи, платформи) =================

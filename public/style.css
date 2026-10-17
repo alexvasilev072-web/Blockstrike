@@ -206,3 +206,41 @@ body.ingame #musicBar { display: none; }
 /* име на мястото (над радара) */
 #zoneName { position: absolute; left: 12px; top: 28px; width: 184px; padding: 2px 6px; box-sizing: border-box; background: rgba(8,10,14,.7); border: 2px solid #2f3a4c; border-radius: 4px; color: #ffe08a; font-size: 14px; font-weight: 700; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 #hud.run #zoneName { display: none; }
+
+/* магазин: бутон за затваряне и превъртане на малки екрани */
+#buy { max-height: 92vh; overflow: auto; }
+#buyClose { position: absolute; right: 8px; top: 6px; padding: 2px 10px; font-size: 18px; }
+
+/* ---------- телефон / таблет: сензорни контроли ---------- */
+html, body { overscroll-behavior: none; }
+body.touch { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+#touch { position: fixed; inset: 0; z-index: 25; pointer-events: none; }
+#touch.off { display: none; }
+#tJoy { position: absolute; left: 0; bottom: 0; width: 46%; height: 62%; pointer-events: auto; touch-action: none; }
+#tLook { position: absolute; right: 0; top: 14%; width: 54%; height: 86%; pointer-events: auto; touch-action: none; }
+#tBase, #tKnob { display: none; position: fixed; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+#tBase { border: 3px solid rgba(255,255,255,.35); background: rgba(255,255,255,.08); }
+#tKnob { width: 54px; height: 54px; background: rgba(255,255,255,.45); }
+.tb { position: absolute; pointer-events: auto; touch-action: none; width: 13vmin; height: 13vmin; min-width: 46px; min-height: 46px; max-width: 74px; max-height: 74px; border-radius: 50%; border: 2px solid rgba(255,255,255,.5); background: rgba(20,26,38,.55); color: #fff; font-size: clamp(14px, 4vmin, 24px); padding: 0; opacity: .75; }
+.tb.on { background: rgba(255,170,40,.7); opacity: 1; }
+#tFire { right: 4%; bottom: 26%; width: 17vmin; height: 17vmin; max-width: 96px; max-height: 96px; background: rgba(220,60,40,.55); }
+#tJump { right: 22%; bottom: 8%; } #tCrouch { right: 5%; bottom: 7%; }
+#tReload { right: 24%; bottom: 30%; } #tUse { right: 38%; bottom: 20%; }
+#tDrop { right: 38%; bottom: 40%; } #tScope { right: 5%; bottom: 50%; }
+#tBuy { left: 3%; top: 49%; width: 11vmin; height: 11vmin; } #tScore { right: 3%; top: 14%; width: 10vmin; height: 10vmin; }
+#tMic { left: 3%; top: 63%; width: 11vmin; height: 11vmin; } #tMenu { left: 50%; top: 2%; transform: translateX(-50%); width: 10vmin; height: 10vmin; }
+#tSlots { position: absolute; right: 14%; top: 14%; display: flex; gap: 6px; } #tSlots .tb { position: static; width: 10vmin; height: 10vmin; min-width: 38px; min-height: 38px; }
+#touch.run #tBuy, #touch.run #tDrop, #touch.run #tScope, #touch.run #tSlots, #touch.run #tMic { display: none; }
+body.touch #radar { width: 120px; height: 120px; top: 52px; } body.touch #zoneName { width: 124px; font-size: 11px; top: 26px; }
+@media (max-width: 900px) {
+  .buycols { grid-template-columns: repeat(2, 1fr); }
+  .bw img { height: 22px; }
+  #buy { width: 96vw; }
+  #br { right: 6px; bottom: 6px; } #killfeed { max-width: 55vw; }
+}
+@media (max-width: 700px) and (orientation: portrait) {
+  .card, .card.wide { width: 96vw; max-width: 96vw; max-height: 94vh; overflow: auto; }
+}
+/* телефон: бутоните да не покриват числата */
+body.touch #wpanel { display: none; }
+#tBuy { left: 18% !important; top: 44% !important; } #tMic { left: 18% !important; top: 62% !important; } #tMenu { left: 30% !important; top: 2% !important; transform: none !important; }
