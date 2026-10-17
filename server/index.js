@@ -631,16 +631,18 @@ class Room {
   // ----- стрелба (CS2: spray pattern + неточност) -----
   spreadOf(p) { return spreadFor(p.weapon, { cr: p.cr, sc: p.sc, spd: p.spd, g: p.g, idx: p.shotIdx }); }
 
-  shoot(p, d) {
+  // burst = true: следващ куршум от серия (Glock в режим „серия“); сървърът го пуска сам, с насочването от първия
+  shoot(p, d, burst = false) {
     const now = Date.now();
     if (this.run || this.phase !== 'live' || !p.alive) return;
     const w = WEAPONS[p.weapon];
     if (!w || !w.mag) return;
     const am = p.ammo[p.weapon];
-    if (now < p.nextShot || p.reloadEnd > now) return this.deny(p, now, Math.max(p.nextShot, p.reloadEnd) - now);
+    if (burst ? (p.reloadEnd > now || !am || am.mag <= 0) : (now < p.nextShot || p.reloadEnd > now)) { if (burst) { p.bq = null; return; } return this.deny(p, now, Math.max(p.nextShot, p.reloadEnd) - now); }
     if (!am || am.mag <= 0) { this.reload(p); return this.deny(p, now, 250); }
     am.mag--;
-    p.nextShot = now + w.rate * 1000 - 12;
+    if (!burst) p.nextShot = now + w.rate * 1000 - 12;
+    if (!burst && w.burst && p.burst) { p.nextShot = now + ((w.burst.n - 1) * w.burst.gap + w.burst.cd) * 1000; p.bq = { w: p.weapon, left: w.burst.n - 1, at: now + w.burst.gap * 1000, gap: w.burst.gap * 1000, d: { yw: d.yw, pt: d.pt, sc: 0, d: d.d } }; }
     p.sc = !!d.sc;
     if (now - p.lastShot > w.rreset * 1000) p.shotIdx = 0;
     p.lastShot = now;
@@ -673,7 +675,7 @@ class Room {
         total += dealt; anyHead = anyHead || head; if (was && !hit.e.alive) anyKill = true;
       }
     }
-    this.emit('shot', { i: p.id, o: o.map(r2), e: ends, w: p.weapon, hit: hitAny });
+    this.emit('shot', { i: p.id, o: o.map(r2), e: ends, w: p.weapon, hit: hitAny, bs: burst ? 1 : 0 });
     for (const q of this.players.values()) if (q.bot && q.alive && q.team !== p.team) q.bot.onShotHeard(p, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
     if (total) p.socket.emit('hit', { dmg: total, hd: anyHead, kill: anyKill });
     if (am.mag === 0 && am.res > 0) this.reload(p);
@@ -1013,6 +1015,10 @@ class Room {
       }
     }
     if (this.phase !== 'matchover') for (const p of this.players.values()) if (p.bot) p.bot.update(dt, now);
+    for (const p of this.players.values()) if (p.bq) {                                    // серия: останалите куршуми излизат през равни интервали
+      if (!p.alive || p.weapon !== p.bq.w) { p.bq = null; continue; }
+      if (now >= p.bq.at) { const q = p.bq; q.left--; q.at += q.gap; if (q.left <= 0) p.bq = null; this.shoot(p, q.d, true); }
+    }
     if (this.phase !== 'lobby') { this.updateItems(dt); if (this.phase === 'freeze' || this.phase === 'live') this.pickItems(now); }
     if (this.phase === 'freeze' && now >= this.phaseEnd) {
       // freeze не свършва, докато някой човек още е на екрана „Готов ли си?“ (най-много CFG.READY_WAIT сек повече)
@@ -1052,7 +1058,7 @@ class Room {
     for (const p of this.players.values()) {
       const am = p.ammo[p.weapon];
       p.socket.emit('me', {
-        hp: p.hp, ar: Math.round(p.armor), mo: p.money, w: p.weapon, inv: p.inv, kit: p.kit,
+        hp: p.hp, ar: Math.round(p.armor), mo: p.money, w: p.weapon, inv: p.inv, kit: p.kit, bu: p.burst ? 1 : 0,
         mag: NADE[p.weapon] ? p.inv.g[NADE[p.weapon]] : am ? am.mag : 0, res: am && !NADE[p.weapon] ? am.res : 0,
         rl: p.reloadEnd > now ? 1 : 0, tm: p.team,
         sp: (() => { if (p.alive || !p.specId) return null; const t = this.players.get(p.specId); if (!t || !t.alive || t.team !== p.team) return null; const ta = t.ammo[t.weapon]; return { id: t.id, hp: t.hp, ar: Math.round(t.armor), w: t.weapon, mag: NADE[t.weapon] ? t.inv.g[NADE[t.weapon]] : ta ? ta.mag : 0, res: ta && !NADE[t.weapon] ? ta.res : 0, rl: t.reloadEnd > now ? 1 : 0, kit: t.kit, bomb: t.inv.bomb, g: t.inv.g }; })(),
@@ -1166,6 +1172,7 @@ io.on('connection', socket => {
   socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
   socket.on('dropbomb', () => room && p && room.throwBomb(p));
+  socket.on('burst', () => { if (room && p && p.alive && WEAPONS[p.weapon]?.burst) { p.burst = !p.burst; p.bq = null; } });
   socket.on('dropw', () => room && p && room.dropHeld(p));
   socket.on('swap', id => room && p && Number.isInteger(id) && room.swapItem(p, id));
   socket.on('leave', cb => {

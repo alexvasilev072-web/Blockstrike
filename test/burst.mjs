@@ -1,0 +1,26 @@
+// Тест на серията на Glock (десен бутон): 3 патрона на едно натискане, интервали, отказ при презареждане/смяна, превключване.
+let fake = 1_700_000_000_000; Date.now = () => fake;
+const realSI = globalThis.setInterval; globalThis.setInterval = () => 0; process.env.PORT = '0';
+const { __test } = await import('../server/index.js'); globalThis.setInterval = realSI;
+const { Room } = __test;
+let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fails++; };
+const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 60); i++) { fake += 16; room.tick(fake); } };
+const room = new Room('BRST'); room.mapId = 'dunes'; const shots = []; room.emit = (n, d) => { if (n === 'shot') shots.push(d); };
+const sock = { id: 'H1', emit() { }, join() { } };
+const me = room.addPlayer(sock, 'Хума'); me.team = 'att'; room.addBot('def', 'easy');
+room.startMatch(); me.ready = true; adv(room, 14);
+for (const b of room.players.values()) if (b.bot) b.bot.update = () => { };
+room.giveWeapon(me, 'glock'); adv(room, 0.6); me.x = 48.5; me.z = 80.5; me.y = 1; me.yw = 0; me.pt = 0;
+const mag0 = me.ammo.glock.mag;
+room.shoot(me, { yw: 0, pt: 0, sc: 0, d: 0 }); adv(room, 1);
+ok(me.ammo.glock.mag === mag0 - 1 && shots.length === 1, 'без режим „серия“: един куршум на натискане');
+me.burst = true; shots.length = 0; adv(room, 0.6);
+const m1 = me.ammo.glock.mag; room.shoot(me, { yw: 0, pt: 0, sc: 0, d: 0 }); adv(room, 0.3);
+ok(me.ammo.glock.mag === m1 - 3 && shots.length === 3, `в режим „серия“: 3 патрона (${shots.length})`);
+ok(shots.filter(s => s.bs).length === 2, 'вторият и третият са маркирани като серия');
+shots.length = 0; room.shoot(me, { yw: 0, pt: 0, sc: 0, d: 0 }); adv(room, 0.1);
+ok(shots.length === 0, 'нова серия е забранена по време на паузата след серията');
+adv(room, 0.8);
+const m2 = me.ammo.glock.mag; room.shoot(me, { yw: 0, pt: 0, sc: 0, d: 0 }); me.weapon = 'pistol'; adv(room, 0.4);
+ok(me.ammo.glock.mag === m2 - 1, 'смяна на оръжие прекъсва серията');
+console.log(fails ? `\nПровалени: ${fails}` : '\nСерията е в ред.'); process.exit(fails ? 1 : 0);

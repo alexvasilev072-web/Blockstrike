@@ -734,6 +734,7 @@ socket.on('cosLeave', id => S.cosById.delete(id));
 socket.on('shot', s => {
   const spec = !alive() && s.i === S.specId, mine = s.i === S.id || spec;
   if (spec) { vmod.fire(Date.now()); audio.shot(s.w, null); }
+  if (s.bs && s.i === S.id) { const cs = vmod.fire(Date.now()); if (cs) spawnCasing(cs); audio.shot(s.w, null); S.kick = 1; }       // следващите куршуми от серия
   let a = s.o;
   if (mine) {
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion), r = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
@@ -856,7 +857,7 @@ document.addEventListener('mousemove', e => {
 document.addEventListener('mousedown', e => {
   if (!S.locked) return;
   if (e.button === 0) { S.firing = true; S.clicked = true; if (!alive()) cycleSpec(); }
-  if (e.button === 2) { S.rclick = true; if (alive() && WEAPONS[S.me.w]?.scoped) S.scoped = !S.scoped; }
+  if (e.button === 2) { S.rclick = true; if (alive() && WEAPONS[S.me.w]?.scoped) S.scoped = !S.scoped; if (alive() && WEAPONS[S.me.w]?.burst) { socket.emit('burst'); audio.equip?.(null); } }
 });
 document.addEventListener('mouseup', e => { if (e.button === 0) S.firing = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
@@ -1072,7 +1073,7 @@ function tryFire(now) {
   if (!w.auto && !clicked) return;
   if (m.rl) return;
   if (m.mag <= 0) { if (clicked) audio.empty(); S.nextFire = now + 250; return; }
-  S.nextFire = now + w.rate * 1000;
+  S.nextFire = now + (w.burst && m.bu ? ((w.burst.n - 1) * w.burst.gap + w.burst.cd) : w.rate) * 1000;
   m.mag--;
   fireTiming(now, w);
   const idx = S.shotIdx;   // същият индекс, който сървърът ползва за този куршум (recoilAt(p.shotIdx) преди увеличаването)
@@ -1187,7 +1188,7 @@ function frame(nowMs) {
   vmod.visible = (isAlive ? !S.scoped : !!specT && !specScoped) && (!dbg || S.debugVM);
   vmod.update(dt, now, isAlive || !specT ? { speed: S.speed, onGround: S.onGround, crouchAmt: S.crouchAmt, mdx: S.mdx, mdy: S.mdy } : { speed: S.specSpeed, onGround: S.specG, crouchAmt: S.specCr, mdx: 0, mdy: 0 });
   S.mdx = 0; S.mdy = 0;
-  $('#scope').style.display = ((S.scoped && isAlive) || specScoped) && !WEAPONS[zoomW]?.zoom ? 'block' : 'none';
+  { const on = (S.scoped && isAlive) || specScoped, zoom = !!WEAPONS[zoomW]?.zoom; $('#scope').style.display = on && !zoom ? 'block' : 'none'; $('#optic').classList.toggle('on', on && zoom); }
   $('#cross').style.display = (S.scoped && isAlive) || specScoped || (!isAlive && !specT) ? 'none' : '';
 
   const pf1 = performance.now();
@@ -1230,7 +1231,7 @@ function updateHud() {
   $('#phaseTxt').style.color = TEAM_COL[m.tm];
   $('#money').textContent = m0.mo;
   $('#hp b').textContent = Math.max(0, m.hp); $('#ar b').textContent = m.ar;
-  const w = WEAPONS[m.w]; $('#wname').textContent = (w?.name || '') + (m.rl ? ' — презарежда…' : '');
+  const w = WEAPONS[m.w]; $('#wname').textContent = (w?.name || '') + (w?.burst && m.bu ? ' • серия' : '') + (m.rl ? ' — презарежда…' : '');
   const noAmmo = m.w === 'knife';
   $('#ammo').style.visibility = noAmmo ? 'hidden' : 'visible';
   $('#ammo b').textContent = m.mag; $('#ammo span').textContent = NADE_IDS.includes(m.w) ? '' : ' / ' + m.res;

@@ -61,7 +61,7 @@ const rec = (base, k) => { const r = WEAPONS[base].recoil; return { ...r, up: r.
 const spr = (base, k) => { const s = WEAPONS[base].spread; const o = {}; for (const key in s) o[key] = s[key] * k; return o; };
 Object.assign(WEAPONS, {
   // пистолети
-  glock:      V('pistol',  { name: 'Глок-18',       team: 'att', dmg: 28, ratio: 0.94, rate: 0.15,  mag: 20, reserve: 120, price: 200,  reward: 300, pitch: 1.1 }),
+  glock:      V('pistol',  { name: 'Глок-18',       team: 'att', dmg: 28, ratio: 0.94, rate: 0.15,  mag: 20, reserve: 120, price: 200,  reward: 300, pitch: 1.1, burst: { n: 3, gap: 0.05, cd: 0.45 } }),   // десен бутон: серия от 3 патрона (като в CS)
   usp:        V('pistol',  { name: 'USP-S',         team: 'def', dmg: 35, ratio: 1.01, rate: 0.17,  mag: 12, reserve: 24,  price: 200,  reward: 300, pitch: 0.85, spread: spr('pistol', 0.8) }),
   p250:       V('pistol',  { name: 'П250',          dmg: 38, ratio: 1.28, rate: 0.15,  mag: 13, reserve: 26,  price: 300,  reward: 300, pitch: 0.95 }),
   fiveseven:  V('pistol',  { name: 'Файв-севън',    team: 'def', dmg: 32, ratio: 1.82, rate: 0.15,  mag: 20, reserve: 100, price: 500,  reward: 300, pitch: 1.2 }),
