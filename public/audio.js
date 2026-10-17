@@ -182,6 +182,8 @@ const STEPS = {
   water(o, v) { noise(o, { dur: 0.22, type: 'bandpass', f: 450, f2: 900, q: 1.4, vol: 0.4 * v, attack: 0.02 }); tone(o, { f: 300, f2: 760, dur: 0.12, vol: 0.12 * v, delay: 0.03 }); },
 };
 const WNAME = { pistol: 'pistol', deagle: 'deagle', smg: 'mp9', rifle: 'ak47', shotgun: 'nova', sniper: 'awp' };
+import { WEAPONS as WDEF } from '/shared/weapons.js';
+const likeOf = w => WDEF[w]?.like || w, pitchOf = w => WDEF[w]?.pitch || 1;       // варианти на оръжие: звукът на базовото, с друга височина
 
 // вятър при висока скорост: непрекъснат шум, чийто тон и сила растат с нивото (0..1)
 let windSrc = null, windGain = null, windFlt = null, windFile = false;
@@ -215,8 +217,8 @@ export const audio = {
     } else { L.setPosition(x, y, z); L.setOrientation(fx, fy, fz, 0, 1, 0); }
   },
 
-  shot(w, pos) { if (!ensure()) return; if (playFile(WNAME[w] + '_fire', pos, pos ? 1.2 : 0.9)) return; const o = out(pos, pos ? 1.2 : 0.9), f = SHOTS[w] || SHOTS.pistol; f(o); },
-  reload(w, pos) { if (!ensure()) return; if (playFile(WNAME[w] + '_reload', pos, pos ? 0.9 : 0.7)) return; const o = out(pos, pos ? 0.9 : 0.7); (RELOADS[w] || RELOADS.pistol)(o); },
+  shot(w, pos) { if (!ensure()) return; const L = likeOf(w); if (playFile(WNAME[L] + '_fire', pos, pos ? 1.2 : 0.9, pitchOf(w))) return; const o = out(pos, pos ? 1.2 : 0.9), f = SHOTS[L] || SHOTS.pistol; f(o); },
+  reload(w, pos) { if (!ensure()) return; const L = likeOf(w); if (playFile(WNAME[L] + '_reload', pos, pos ? 0.9 : 0.7, pitchOf(w))) return; const o = out(pos, pos ? 0.9 : 0.7); (RELOADS[L] || RELOADS.pistol)(o); },
   equip(pos) { if (!ensure()) return; if (playFile('draw', pos, 0.7)) return; const o = out(pos, 0.7); click(o, 1500, 0.18); click(o, 1000, 0.15, 0.09); },
   knife(kind, hit, pos) {
     if (!ensure()) return;

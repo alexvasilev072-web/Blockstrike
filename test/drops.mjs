@@ -13,6 +13,7 @@ const foe = room.addBot('def', 'easy'); room.addBot('att', 'easy'); room.addBot(
 room.startMatch(); me.ready = true; adv(room, 14);
 ok(room.phase === 'live', 'рундът е в live');
 for (const b of room.players.values()) if (b.bot) { b.bot.update = () => { }; }       // ботовете стоят
+room.items = [];                                              // оръжия, паднали от убити в първите секунди
 
 console.log('— G: хвърляне');
 room.giveWeapon(me, 'rifle'); me.money = 0;

@@ -11,6 +11,16 @@ const PAL = {
   G: [64, 150, 72], s: [232, 188, 148], e: [92, 164, 214], B: [92, 62, 42], k: [40, 40, 44], a: [90, 94, 104],
 };
 
+// ---------- производни чертежи (варианти на базов модел) ----------
+// opts: a – основен цвят; swap – смяна на цветови ключове; add – допълнителни кутии по части; muzzle/eject – нови позиции
+function derive(base, opts) {
+  const b = JSON.parse(JSON.stringify(BP[base])); b.like = base;
+  if (opts.a) b.a = opts.a;
+  for (const part of Object.values(b.parts)) for (const box of part) if (opts.swap?.[box[6]]) box[6] = opts.swap[box[6]];
+  for (const [n, boxes] of Object.entries(opts.add || {})) (b.parts[n] || (b.parts[n] = [])).push(...boxes);
+  if (opts.muzzle) b.muzzle = opts.muzzle;
+  return b;
+}
 // ---------- чертежи ----------
 const rect = (list, x0, y0, z0, x1, y1, z1, c) => list.push([x0, y0, z0, x1, y1, z1, c]);
 export const BP = {
@@ -248,5 +258,27 @@ export function buildModel(bpId, { skin = 'default', step = 1, team = 'att' } = 
   root.userData = { bpId, parts, bp, p: v => new THREE.Vector3(v[0] * VS, v[1] * VS, v[2] * VS) };
   return root;
 }
+// варианти (силует/цвят/обков се различават); анимациите и звукът идват от базовия модел (like)
+const sil = (z0, z1, y = 3) => [-1, y, z0, 1, y + 3, z1, 'b'];         // заглушител (кутия пред цевта)
+BP.glock = derive('pistol', { a: [38, 40, 44], swap: { M: 'g' } });
+BP.usp = derive('pistol', { a: [74, 78, 86], add: { slide: [[-1, 5, -26, 1, 8, -16, 'b']] }, muzzle: [0, 6, -27] });
+BP.p250 = derive('pistol', { a: [90, 94, 102], swap: { M: 'm' } });
+BP.fiveseven = derive('pistol', { a: [72, 60, 48], add: { mag: [[-1, -16, 1, 1, -12, 6, 'M']] } });
+BP.tec9 = derive('pistol', { a: [48, 52, 48], add: { mag: [[-1, -20, 7, 1, -12, 12, 'M']] } });
+BP.mac10 = derive('smg', { a: [36, 38, 42] });
+BP.mp7 = derive('smg', { a: [76, 80, 74], add: { body: [[-1, 8, -4, 1, 10, 8, 'm']] } });
+BP.ump = derive('smg', { a: [96, 102, 110], swap: { m: 'g' } });
+BP.p90 = derive('smg', { a: [186, 190, 196], add: { body: [[-1, 10, -26, 1, 12, 6, 'b']] } });
+BP.bizon = derive('smg', { a: [150, 118, 76], add: { mag: [[-1, -24, -9, 1, -16, -3, 'M']] } });
+BP.m4a4 = derive('rifle', { a: [46, 48, 54], swap: { w: 'b' } });
+BP.m4a1s = derive('rifle', { a: [58, 60, 66], swap: { w: 'b' }, add: { body: [[-1, 3, -90, 1, 7, -70, 'b']] }, muzzle: [0, 4, -91] });
+BP.galil = derive('rifle', { a: [96, 104, 92], swap: { w: 'g' } });
+BP.famas = derive('rifle', { a: [64, 78, 58], swap: { w: 'g' }, add: { body: [[-1, 11, -34, 1, 14, -14, 'm']] } });
+BP.xm1014 = derive('shotgun', { a: [40, 44, 50], swap: { w: 'b' } });
+BP.mag7 = derive('shotgun', { a: [60, 68, 82], swap: { w: 'g' } });
+BP.sawedoff = derive('shotgun', { a: [100, 72, 50] });
+BP.ssg08 = derive('sniper', { a: [92, 98, 64] });
+BP.scar20 = derive('sniper', { a: [34, 36, 40] });
+BP.g3sg1 = derive('sniper', { a: [82, 84, 62], swap: { a: 'g' } });
 export const modelIdFor = (weapon, cos) => (weapon === 'knife' ? (cos?.knife || 'bayonet') : weapon);
 export const skinFor = (weapon, cos) => (weapon === 'knife' ? (cos?.skins?.['knife_' + (cos?.knife || 'bayonet')] || 'default') : (cos?.skins?.[weapon] || 'default'));

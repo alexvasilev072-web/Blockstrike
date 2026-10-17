@@ -14,11 +14,12 @@ const SHAPES = {
   molotov: [[17, 7, 10, 9], [15, 9, 14, 5], [19, 3, 6, 4], [20, 1, 4, 2], [22, 0, 2, 1], [26, 0, 3, 3]],
   bomb: [[6, 4, 32, 12], [9, 6, 12, 5], [24, 6, 11, 2], [24, 9, 11, 2], [18, 1, 2, 3], [12, 0, 8, 1], [38, 8, 4, 2]],
 };
+import { WEAPONS } from '/shared/weapons.js';
 const cache = new Map();
 // data URL на иконата (бял силует с тъмен контур за четливост върху всякакъв фон)
 export function weaponIcon(id) {
   let u = cache.get(id); if (u) return u;
-  const sh = SHAPES[id] || SHAPES.pistol, S = 3, c = document.createElement('canvas'); c.width = 46 * S; c.height = 20 * S; const g = c.getContext('2d');
+  const sh = SHAPES[id] || SHAPES[WEAPONS[id]?.like] || SHAPES.pistol, S = 3, c = document.createElement('canvas'); c.width = 46 * S; c.height = 20 * S; const g = c.getContext('2d');
   g.fillStyle = '#000'; for (const [x, y, w, h] of sh) g.fillRect(x * S, y * S, (w + 2) * S, (h + 2) * S);          // контур (1 клетка)
   g.fillStyle = '#fff'; for (const [x, y, w, h] of sh) g.fillRect((x + 1) * S, (y + 1) * S, w * S, h * S);
   cache.set(id, u = c.toDataURL()); return u;

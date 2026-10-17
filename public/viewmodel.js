@@ -27,7 +27,7 @@ const BASE = {
   hunting: { pos: [0.2, -0.22, -0.46], rot: [-0.45, 0.3, -1.0] }, falchion: { pos: [0.22, -0.23, -0.5], rot: [-0.5, 0.3, -1.1] },
 };
 const NADES = ['grenade', 'flash', 'smoke', 'molotov'];
-const kindOf = id => (BP[id]?.knife ? 'knife' : id === 'deagle' ? 'pistol' : NADES.includes(id) ? 'grenade' : id);
+const kindOf = id => (BP[id]?.knife ? 'knife' : id === 'deagle' ? 'pistol' : NADES.includes(id) ? 'grenade' : (BP[id]?.like || id));
 
 // ---------- вадене ----------
 const DRAW = {
@@ -262,10 +262,10 @@ export class ViewModel {
   fire(now) {
     this.cancelInspect();
     this.fireKick = 1; this.flashUntil = now + 55;
-    if (this.id === 'shotgun') this.shotCycle = { t0: now + 160, d: 520 };
-    else if (this.id === 'sniper') this.shotCycle = { t0: now + 380, d: 900 };
+    if (kindOf(this.id) === 'shotgun') this.shotCycle = { t0: now + 160, d: 520 };
+    else if (kindOf(this.id) === 'sniper') this.shotCycle = { t0: now + 380, d: 900 };
     if (this.flash) { this.flash.rotation.z = Math.random() * TAU; this.flash.scale.setScalar(0.7 + Math.random() * 0.7); }
-    const bp = BP[this.id]; if (!bp?.eject || this.id === 'shotgun') return null;
+    const bp = BP[this.id]; if (!bp?.eject || kindOf(this.id) === 'shotgun') return null;
     const e = new THREE.Vector3(bp.eject[0] * VS, bp.eject[1] * VS, bp.eject[2] * VS);
     this.model.updateWorldMatrix(true, false); e.applyMatrix4(this.model.matrixWorld);
     return { pos: e, vel: [1.6 + Math.random() * 0.8, 1.6 + Math.random() * 0.8, 0.6 + Math.random() * 0.6] };
@@ -296,7 +296,7 @@ export class ViewModel {
       const u = (now - this.shotCycle.t0) / this.shotCycle.d;
       if (u >= 1) this.shotCycle = null;
       else if (u >= 0) {
-        if (this.id === 'shotgun') { p.part('pump').pos[2] += 0.12 * bump(u, 0, 0.4, 0.55, 1); p.lh[2] += 0.02; }
+        if (kindOf(this.id) === 'shotgun') { p.part('pump').pos[2] += 0.12 * bump(u, 0, 0.4, 0.55, 1); p.lh[2] += 0.02; }
         else { p.part('bolt').rot[2] += -1.0 * bump(u, 0, 0.2, 0.75, 0.95); p.part('bolt').pos[2] += 0.09 * bump(u, 0.15, 0.4, 0.55, 0.8); }
       }
     }
@@ -304,14 +304,14 @@ export class ViewModel {
     const k = this.fireKick;
     if (!BP[this.id].knife) {
       p.pos[2] += 0.045 * k; p.rot[0] += 0.055 * k; p.pos[1] += 0.008 * k;
-      if (this.id === 'pistol' || this.id === 'deagle') p.part('slide').pos[2] += 0.03 * Math.min(1, k * 1.3);
-      if (this.id === 'smg' || this.id === 'rifle') p.part('bolt').pos[2] += 0.02 * Math.min(1, k * 1.5);
+      if (kindOf(this.id) === 'pistol') p.part('slide').pos[2] += 0.03 * Math.min(1, k * 1.3);
+      if (kindOf(this.id) === 'smg' || kindOf(this.id) === 'rifle') p.part('bolt').pos[2] += 0.02 * Math.min(1, k * 1.5);
     }
     // люлеене при ходене и инерция от мишката
     this.bobT += dt * (2 + ctx.speed * 1.4);
     const sp = Math.min(1, ctx.speed / 6) * (ctx.onGround ? 1 : 0.2), bobY = Math.abs(Math.sin(this.bobT)) * 0.012 * sp, bobX = Math.sin(this.bobT) * 0.01 * sp;
     this.sway[0] += ((-ctx.mdx * 0.0006) - this.sway[0]) * Math.min(1, dt * 10); this.sway[1] += ((ctx.mdy * 0.0006) - this.sway[1]) * Math.min(1, dt * 10);
-    const base = BASE[this.id] || BASE.rifle, crouch = ctx.crouchAmt * 0.02;
+    const base = BASE[this.id] || BASE[kind] || BASE.rifle, crouch = ctx.crouchAmt * 0.02;
     this.holder.position.set(base.pos[0] + p.pos[0] + bobX, base.pos[1] + p.pos[1] - bobY - crouch + (ctx.onGround ? 0 : 0.012), base.pos[2] + p.pos[2]);
     this.holder.rotation.set(base.rot[0] + p.rot[0] + this.sway[1], base.rot[1] + p.rot[1] + this.sway[0], base.rot[2] + p.rot[2] + this.sway[0] * 0.6, 'YXZ');
     this.spinner.rotation.set(p.spin[0], p.spin[1], p.spin[2]);

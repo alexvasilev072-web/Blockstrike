@@ -2,7 +2,7 @@
 // входът и предвиждането на собственото движение (физика като в CS2).
 import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
-import { NADE_IDS, NADE_ORDER, NADE_W, nadePrice, WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
+import { NADE_IDS, NADE_ORDER, NADE_W, nadePrice, WEAPONS, ITEMS, BUY_CATS, weaponsOfCat, canUse, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
 import { stepBody, platformsAt } from '/shared/physics.js';
 import { Bsp, decodeF32, decodeU8, decodeU32 } from '/shared/bsp.js';
@@ -14,6 +14,7 @@ import { initSkins } from './skins.js';
 import { drawRadar, markRadarDirty } from './radar.js';
 import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
+import { initLoadout, loadout } from './loadout.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
 import { weaponIcon } from './wicons.js';
@@ -659,7 +660,7 @@ const alive = () => S.me.hp > 0;
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 initSkins({ onChange: () => sendLoadout() });
 function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {}, char: loadChar() }); } catch { } }
-initHeroes({ onChange: () => sendLoadout() });
+initHeroes({ onChange: () => sendLoadout() }); initLoadout();
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
@@ -829,7 +830,7 @@ document.addEventListener('mousemove', e => {
 document.addEventListener('mousedown', e => {
   if (!S.locked) return;
   if (e.button === 0) { S.firing = true; S.clicked = true; if (!alive()) cycleSpec(); }
-  if (e.button === 2) { S.rclick = true; if (alive() && S.me.w === 'sniper') S.scoped = !S.scoped; }
+  if (e.button === 2) { S.rclick = true; if (alive() && WEAPONS[S.me.w]?.scoped) S.scoped = !S.scoped; }
 });
 document.addEventListener('mouseup', e => { if (e.button === 0) S.firing = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
@@ -864,7 +865,7 @@ addEventListener('keydown', e => {
   S.keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
   if (e.code === 'KeyB' && S.mode === 'comp') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
-  if (S.buyOpen) { const bi = /^Digit[0-9]$/.test(e.code) ? (e.code[5] === '0' ? 9 : +e.code[5] - 1) : e.code === 'Minus' ? 10 : -1; if (bi >= 0 && ITEMS[bi]) { socket.emit('buy', ITEMS[bi].id); return; } }
+  if (S.buyOpen) { if (buyKey(e)) { e.preventDefault(); return; } }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
   if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
@@ -943,15 +944,52 @@ addEventListener('keydown', e => {
   if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'KeyY') { e.preventDefault(); openChat(false); }
   else if (e.code === 'KeyU') { e.preventDefault(); openChat(true); }
 });
-function openBuy() { S.buyOpen = true; $('#buy').classList.remove('hidden'); renderBuy(); }
+function openBuy() { S.buyOpen = true; S.buyPage = 'top'; $('#buy').classList.remove('hidden'); renderBuy(); }
 function closeBuy() { S.buyOpen = false; $('#buy').classList.add('hidden'); }
+// Магазин: главна страница (любимо основно, любим пистолет, любим комплект, категории); цифрите избират, 0 е „назад“
+const GEAR = [['armor', 'Броня', 650], ['kit', 'Defuse kit', 400]];
+const NADE_NAMES = { he: 'Граната (HE)', flash: 'Flashbang', smoke: 'Димна граната', molo: 'Молотов' };
+function buyOwn(id) {
+  const m = S.me, g = m.inv.g || {};
+  if (id === 'armor') return m.ar >= 100; if (id === 'kit') return !!m.kit;
+  if (NADE_IDS.includes(id)) { const k = { grenade: 'he', flash: 'flash', smoke: 'smoke', molotov: 'molo' }[id]; return k === 'flash' ? g.flash >= 2 : g[k] >= 1; }
+  return m.inv[WEAPONS[id]?.slot] === id;
+}
+function buyPrice(id) { return id === 'armor' ? 650 : id === 'kit' ? 400 : NADE_IDS.includes(id) ? nadePrice(id, S.me.tm) : WEAPONS[id].price; }
+function buyPages() {
+  const m = S.me, team = m.tm, L = loadout[team], pages = { top: [] };
+  const fav = (slot, label) => { const id = L[slot]; return id && canUse(id, team) ? { id, label: label + ': ' + WEAPONS[id].name } : { none: true, label: label + ': не е избрано (Инвентар в менюто)' }; };
+  pages.top.push({ ...fav('pr', 'Любимо основно'), k: 'fav' }, { ...fav('se', 'Любим пистолет'), k: 'fav' }, { kit: true, label: 'Любим комплект: броня' + (team === 'def' ? ' + kit' : '') + ' + гранати', k: 'kit' });
+  for (const c of BUY_CATS) pages.top.push({ page: c.id, label: c.label });
+  pages.top.push({ page: 'gear', label: 'Екипировка' }, { page: 'nade', label: 'Гранати' });
+  for (const c of BUY_CATS) pages[c.id] = weaponsOfCat(c, team).map(id => ({ id, label: WEAPONS[id].name }));
+  pages.gear = [{ id: 'armor', label: 'Броня' }, ...(team === 'def' ? [{ id: 'kit', label: 'Defuse kit' }] : [])];
+  pages.nade = ['grenade', 'flash', 'smoke', 'molotov'].map(id => ({ id, label: WEAPONS[id].name }));
+  return pages;
+}
+function kitPlan() {   // какво купува „любимият комплект“ (по реда на важност)
+  const L = loadout[S.me.tm], out = [];
+  if (L.armor) out.push('armor'); for (const k of L.nades) out.push(NADE_W[k]); if (S.me.tm === 'def' && L.kit) out.push('kit'); return out;
+}
+function buyKey(e) {
+  if (!/^Digit[0-9]$/.test(e.code)) return false;
+  const n = +e.code[5], pages = buyPages(), cur = pages[S.buyPage] || pages.top;
+  if (n === 0) { if (S.buyPage !== 'top') { S.buyPage = 'top'; renderBuy(); } return true; }
+  const it = cur[n - 1]; if (!it) return true;
+  if (it.page) { S.buyPage = it.page; renderBuy(); return true; }
+  if (it.k === 'kit') { for (const id of kitPlan()) if (!buyOwn(id)) socket.emit('buy', id); return true; }
+  if (it.none) { toast('Избери любими оръжия от „Инвентар“ в главното меню', 2500); return true; }
+  socket.emit('buy', it.id); return true;
+}
 function renderBuy() {
-  const m = S.me;
-  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + ITEMS.map(it => {
-    const g = m.inv.g || {}, own = it.id === 'armor' ? m.ar >= 100 : it.id === 'grenade' ? g.he >= 1 : it.id === 'flash' ? g.flash >= 2 : it.id === 'smoke' ? g.smoke >= 1 : it.id === 'molotov' ? g.molo >= 1 : it.id === 'kit' ? m.kit : m.inv[WEAPONS[it.id].slot] === it.id;
-    const blocked = (it.id === 'kit' && m.tm !== 'def') || (NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES);
-    const price = NADE_IDS.includes(it.id) ? nadePrice(it.id, m.tm) : it.price;
-    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>[${it.key}] ${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
+  const m = S.me, pages = buyPages(), page = S.buyPage || 'top', cur = pages[page] || pages.top;
+  $('#buyHelp').textContent = page === 'top' ? '(B – затвори)' : '(0 – назад, B – затвори)';
+  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>` + cur.map((it, i) => {
+    if (it.page) return `<div class="buyrow"><span>[${i + 1}] ${it.label}</span><span>›</span></div>`;
+    if (it.k === 'kit') { const plan = kitPlan().filter(id => !buyOwn(id)), cost = plan.reduce((s, id) => s + buyPrice(id), 0); return `<div class="buyrow ${!plan.length ? 'no' : ''}"><span>[${i + 1}] ${it.label}</span><span>${plan.length ? '<b>$' + cost + '</b>' : '<em>имаш</em>'}</span></div>`; }
+    if (it.none) return `<div class="buyrow no"><span>[${i + 1}] ${it.label}</span><span></span></div>`;
+    const own = buyOwn(it.id), price = buyPrice(it.id), blocked = NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES;
+    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>[${i + 1}] ${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
   }).join('');
 }
 
@@ -1032,7 +1070,7 @@ function tryFire(now) {
   S.kick = 1;
   const cs = vmod.fire(now); if (cs) spawnCasing(cs);
   audio.shot(m.w, null);
-  if (m.w === 'sniper') S.scoped = false;
+  if (!WEAPONS[m.w]?.scoped) S.scoped = false;
 }
 
 // ================= Наблюдение =================
@@ -1122,7 +1160,7 @@ function frame(nowMs) {
   camera.position.set(cp[0] + (Math.random() - .5) * sh, cp[1] + (Math.random() - .5) * sh, cp[2] + (Math.random() - .5) * sh);
   camera.rotation.set(cpitch, cyaw, 0); updateSky(dt);
   const spd3 = Math.hypot(S.vel.x, S.vel.y, S.vel.z), fast = clamp((spd3 - 12) / 40, 0, 1);
-  const specScoped = !!(specT && specT.sc && specT.w === 'sniper');
+  const specScoped = !!(specT && specT.sc && WEAPONS[specT.w]?.scoped);
   const targetFov = (S.scoped && isAlive) || specScoped ? 22 : settings.fov + (isAlive ? fast * 14 : 0);
   audio.setWind(isAlive ? fast : 0);
   if (Math.abs(camera.fov - targetFov) > 0.1) { camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 14); camera.updateProjectionMatrix(); }

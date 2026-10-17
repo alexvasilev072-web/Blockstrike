@@ -30,7 +30,7 @@
     </div>
     <div class="row">
       <button class="skinsOpen grow">Скинове</button>
-      <button class="heroOpen grow">Герои</button>
+      <button class="heroOpen grow">Герои</button><button class="loadoutOpen">Инвентар</button>
       <button class="settingsOpen grow">Настройки</button>
     </div>
     <div id="joinErr" class="err"></div>
@@ -42,7 +42,7 @@
   <div class="card wide">
     <div class="row between">
       <div class="row"><button id="backBtn">← Назад</button><h2>Стая <b id="lobCode"></b></h2></div>
-      <div class="row"><button class="skinsOpen">Скинове</button><button class="heroOpen">Герои</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
+      <div class="row"><button class="skinsOpen">Скинове</button><button class="heroOpen">Герои</button><button class="loadoutOpen">Инвентар</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
     <div class="row modes"><span class="sub" style="margin:0">Режим:</span><button class="modeBtn" data-mode="comp">Състезателен</button><button class="modeBtn" data-mode="parkour">Parkour</button><button class="modeBtn" data-mode="surf">Surf</button></div>
     <div id="botBar" class="row modes"><span class="sub" style="margin:0">Ботове – трудност:</span><select id="botDiff"><option value="easy">Лесен</option><option value="medium" selected>Среден</option><option value="hard">Труден</option><option value="expert">Експерт (като опитен CS играч)</option></select><button id="botFill">Запълни с ботове</button><button id="botClear">Махни ботовете</button></div>
@@ -107,6 +107,15 @@
   </div>
 </div>
 
+<!-- Инвентар: любими оръжия -->
+<div id="loadout" class="screen hidden" style="z-index:30">
+  <div class="card wide">
+    <div class="row between"><h2>Инвентар</h2><span><button id="loadoutReset">По подразбиране</button> <button id="loadoutClose">Готово</button></span></div>
+    <div id="loadoutTeam" class="row"><span class="sub" style="margin:0">Отбор:</span><button data-t="att">Нападатели</button><button data-t="def">Защитници</button></div>
+    <div id="loadoutBody"></div>
+    <p class="sub">Любимите оръжия се купуват с един клавиш от магазина (B): 1 – основно, 2 – пистолет, 3 – целият комплект. Цените и парите са както в играта.</p>
+  </div>
+</div>
 <!-- Скинове -->
 <div id="heroes" class="screen hidden" style="z-index:30">
   <div class="card wide">
@@ -177,7 +186,7 @@
   </div>
   <div id="fps"></div>
   <div id="buy" class="hidden">
-    <h3>МАГАЗИН <small>(B – затвори, 1–8 – купи)</small></h3>
+    <h3>МАГАЗИН <small id="buyHelp">(B – затвори)</small></h3>
     <div id="buyList"></div>
   </div>
   <div id="board" class="hidden"></div>
@@ -191,6 +200,7 @@
       <button class="settingsOpen">Настройки</button>
       <button class="skinsOpen">Скинове</button>
       <button class="heroOpen">Герои</button>
+      <button class="loadoutOpen">Инвентар</button>
       <button id="pBoard">Резултати</button>
       <button id="pLobby">Към лобито (домакин)</button>
       <button id="pLeave" class="danger">Излез в главното меню</button>

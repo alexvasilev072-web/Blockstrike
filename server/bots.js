@@ -3,7 +3,7 @@
 // реакцията, точността, контрола на откат (counter-strafe, къси серии), тактиката и използването на гранати.
 import { BLOCK, SOLID, traverse } from '../shared/world.js';
 import { stepBody, makeBody } from '../shared/physics.js';
-import { WEAPONS, MOVE, CFG, recoilAt, NADE, NADE_IDS } from '../shared/weapons.js';
+import { WEAPONS, canUse, MOVE, CFG, recoilAt, NADE, NADE_IDS } from '../shared/weapons.js';
 
 const STEP = MOVE.STEP;
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -137,16 +137,17 @@ export class Bot {
   buy() {
     const r = this.room, p = this.p, d = this.d; this.bought = true;
     const rich = p.money, pistolRound = r.round === 1 || r.round === CFG.HALF + 1, tryBuy = it => r.buy(p, it);
-    let awps = 0; for (const q of r.players.values()) if (q.team === p.team && q.alive && q.inv.pr === 'sniper') awps++;
+    let awps = 0; for (const q of r.players.values()) if (q.team === p.team && q.alive && WEAPONS[q.inv.pr]?.scoped) awps++;
     if (pistolRound) { if (p.money >= 650 && (this.diffId === 'hard' || this.diffId === 'expert' || p.team === 'def')) tryBuy('armor'); else if (p.money >= 700) tryBuy('deagle'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }
     if (p.inv.pr) { if (rich >= 650) tryBuy('armor'); if (d.nades && p.money >= 300) tryBuy('grenade'); if (d.nades && p.money >= 200) tryBuy('flash'); if (p.team === 'def' && p.money >= 400) tryBuy('kit'); return; }   // основното оръжие е запазено от миналия рунд
-    if (rich >= 4750 + 650 && d.awp && awps < 1 && Math.random() < (this.diffId === 'expert' ? 0.5 : 0.25)) tryBuy('sniper');
-    else if (rich >= 2700 + 650) tryBuy('rifle');
-    else if (rich >= 2700 && Math.random() < 0.5) tryBuy('rifle');
-    else if (rich >= 1250 + 650) tryBuy('smg');
-    else if (rich >= 1050 + 650 && Math.random() < 0.3) tryBuy('shotgun');
-    else if (rich >= 1250) tryBuy('smg');
-    else if (rich >= 700 + 650 && !p.inv.pr) tryBuy('deagle');
+    // основно оръжие по отбор и пари (оставя се за броня); най-добрата пушка, иначе картечница/помпа, иначе по-добър пистолет
+    const opts = Object.entries(WEAPONS).filter(([id, w]) => w.slot === 'pr' && w.price > 0 && canUse(id, p.team)).map(([id, w]) => ({ id, price: w.price, like: w.like, scoped: !!w.scoped }));
+    const can = extra => opts.filter(o => o.price + extra <= rich), top = (l, n = 2) => { l = l.sort((x, y) => y.price - x.price).slice(0, n); return l.length ? l[Math.floor(Math.random() * l.length)].id : null; };
+    const awpOk = rich >= 4750 + 650 && d.awp && awps < 1 && Math.random() < (this.diffId === 'expert' ? 0.5 : 0.25) && opts.some(o => o.id === 'sniper');
+    let want = awpOk ? 'sniper' : top(can(650).filter(o => o.like === 'rifle'));
+    if (!want) want = top(can(650).filter(o => o.like === 'smg' || (o.like === 'shotgun' && Math.random() < 0.3)), 3);
+    if (!want) want = top(can(0).filter(o => o.like === 'rifle' || o.like === 'smg'), 2);
+    if (want) tryBuy(want); else if (rich >= 700 + 650 && !p.inv.pr) tryBuy('deagle');
     if (p.money >= 650) tryBuy('armor');
     if (p.money >= 300 && d.nades) tryBuy('grenade');
     if (d.nades && p.money >= 200 && Math.random() < 0.7) tryBuy('flash');
@@ -363,7 +364,7 @@ export class Bot {
     // екстра: лекото движение на целта между тиковете се компенсира от самото следене (hitscan)
     const engaged = now >= m.engageAt;
     this.lookAt = this.aimPt; this.engaged = engaged; p.using = false;
-    const awp = p.weapon === 'sniper', shotgun = p.weapon === 'shotgun', spray = !!w.auto;
+    const awp = !!w.scoped, shotgun = w.like === 'shotgun', spray = !!w.auto;
     // оптика
     this.scoped = awp;
     // движение в бой
@@ -424,10 +425,10 @@ export class Bot {
     if (now < p.nextShot || p.reloadEnd > now) return;
     const idx = now - p.lastShot > w.rreset * 1000 ? 0 : p.shotIdx, [ry, rp] = recoilAt(p.weapon, idx), v = this.view, c = this.d.recoil;
     const before = p.ammo[p.weapon]?.mag;
-    r.shoot(p, { yw: v.yaw - ry * c, pt: v.pitch - rp * c, sc: this.scoped && p.weapon === 'sniper', d: 0 });
+    r.shoot(p, { yw: v.yaw - ry * c, pt: v.pitch - rp * c, sc: this.scoped && !!w.scoped, d: 0 });
     if (p.ammo[p.weapon] && p.ammo[p.weapon].mag < before) {
       this.burstLeft--;
-      if (this.burstLeft <= 0) this.pauseUntil = now + rnd(this.d.pause[0], this.d.pause[1]) * 1000 * (w.auto ? 1 : 0.6) + (p.weapon === 'sniper' ? 300 : 0);
+      if (this.burstLeft <= 0) this.pauseUntil = now + rnd(this.d.pause[0], this.d.pause[1]) * 1000 * (w.auto ? 1 : 0.6) + (w.scoped ? 300 : 0);
     }
   }
 
@@ -584,7 +585,7 @@ export class Bot {
       stepBody(B, { can: true, fx, fz, crouch: inp.crouch, walk: inp.walk, jumpNow: inp.jump, jumpHeld: false }, ctx, STEP);
       inp.jump = false;
     }
-    p.x = B.pos.x; p.y = B.pos.y; p.z = B.pos.z; p.g = B.onGround; p.cr = B.crouching; p.spd = B.speed; p.wk = !!inp.walk && B.speed > 0.5; p.sc = this.scoped && p.weapon === 'sniper';
+    p.x = B.pos.x; p.y = B.pos.y; p.z = B.pos.z; p.g = B.onGround; p.cr = B.crouching; p.spd = B.speed; p.wk = !!inp.walk && B.speed > 0.5; p.sc = this.scoped && !!WEAPONS[p.weapon]?.scoped;
     if (p.g) p.lastGround = { x: p.x, y: p.y, z: p.z };
     this.pushHist(now);
   }

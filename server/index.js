@@ -8,7 +8,7 @@ import { Server } from 'socket.io';
 import { Bot, DIFFS, BOT_NAMES } from './bots.js';
 import { Bsp, boxBlockedBsp, toCs, fromCs, U as BU } from '../shared/bsp.js';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
-import { NADE, NADE_W, NADE_ORDER, nadePrice, CHARACTERS, cleanChars, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
+import { canUse, NADE, NADE_W, NADE_ORDER, nadePrice, CHARACTERS, cleanChars, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT || 3000;
@@ -741,6 +741,8 @@ class Room {
     if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
     if (!inFreeze && !inBuyZone(this.map.json.spawns[p.team], p.x, p.z)) return p.socket.emit('err', 'Можеш да купуваш само в зоната около spawn-а');
     if (item === 'pistol') return;
+    if (WEAPONS[item]?.team && WEAPONS[item].team !== p.team) return p.socket.emit('err', 'Това оръжие е само за ' + (WEAPONS[item].team === 'att' ? 'нападателите' : 'защитниците'));
+    if (WEAPONS[item] && WEAPONS[item].slot !== 'pr' && WEAPONS[item].slot !== 'se' && !NADE[item]) return;
     const price = item === 'armor' ? 650 : item === 'kit' ? 400 : nadePrice(item, p.team);
     if (price === undefined || item === 'knife') return;
     if (p.money < price) return p.socket.emit('err', 'Нямаш достатъчно пари');
@@ -758,6 +760,7 @@ class Room {
       p.kit = true;
     } else {
       if (p.inv[WEAPONS[item].slot] === item) return p.socket.emit('err', 'Вече го имаш');
+      if (p.inv[WEAPONS[item].slot]) this.dropSlot(p, WEAPONS[item].slot, false);       // старото оръжие от слота пада на земята (като в CS)
       this.giveWeapon(p, item);
     }
     p.money -= price;
@@ -1168,6 +1171,7 @@ io.on('connection', socket => {
   });
   if (TEST) socket.on('dbgKill', () => { if (room && p && p.alive) room.hurt(p, null, 1000, 'bomb', false, { ignoreTeam: true, noArmor: true }); });
   if (TEST) socket.on('dbgKillId', id => { const t = room?.players.get(id); if (t && t.alive) room.hurt(t, p, 1000, t.weapon || 'rifle', true, {}); });
+  if (TEST) socket.on('dbgGive', id => { if (room && p && p.alive && WEAPONS[id]) { room.giveWeapon(p, id); room.emit('equip', { i: p.id, w: id }); } });
   if (TEST) socket.on('dbgTp',t => { if (p) { p.x = t.x; p.y = t.y; p.z = t.z; p.hist.push({ t: Date.now(), x: t.x, y: t.y, z: t.z, cr: false }); } });
   socket.on('disconnect', () => { if (room && p) room.removePlayer(p.id); });
 });
