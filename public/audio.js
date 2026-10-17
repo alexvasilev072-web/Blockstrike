@@ -40,19 +40,47 @@ const WORKLET = `class Crush extends AudioWorkletProcessor {
 }
 registerProcessor('crush', Crush);`;
 
+// ---------- „лечение“: звукът никога не бива да остава замлъкнал ----------
+// Причини за пълна тишина: контекстът е спрян (suspended/interrupted), филтър/компресор е „залепнал“ на NaN, главната сила остава намалена (flashbang).
+let probe = null, probeBuf = null, flashUntil = 0, healed = 0;
+function makeComp() {
+  const c = ctx.createDynamicsCompressor(); c.threshold.value = -14; c.ratio.value = 6; c.attack.value = 0.003; c.release.value = 0.15;
+  c.connect(ctx.destination); if (probe) c.connect(probe); return c;
+}
+function heal() {
+  if (!ctx) return;
+  if (ctx.state !== 'running') { try { ctx.resume(); } catch { } return; }
+  // 1) NaN/∞ в изхода на веригата (филтър или компресор „умира“ завинаги) – изграждаме ги наново
+  if (probe) {
+    probe.getFloatTimeDomainData(probeBuf); let bad = false;
+    for (let i = 0; i < probeBuf.length; i++) if (!Number.isFinite(probeBuf[i])) { bad = true; break; }
+    if (bad) {
+      healed++; try { comp.disconnect(); } catch { }
+      comp = makeComp(); lowp = ctx.createBiquadFilter(); lowp.type = 'lowpass'; lowp.frequency.value = 5200; lowp.Q.value = 0.7; shaper = makeShaper(); rebuildChain();
+    }
+  }
+  // 2) главната сила трябва да е равна на настройката, освен докато трае заслепяването
+  if (performance.now() > flashUntil && master && Math.abs(master.gain.value - volume) > 0.01) { master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setValueAtTime(volume, ctx.currentTime); }
+}
+if (typeof document !== 'undefined') {
+  setInterval(heal, 1000);
+  for (const ev of ['pointerdown', 'keydown', 'focus', 'visibilitychange']) addEventListener(ev, () => { if (ctx && ctx.state !== 'running') { try { ctx.resume(); } catch { } } }, { capture: true, passive: true });
+}
+
 function ensure() {
-  if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return true; }
+  if (ctx) { if (ctx.state !== 'running') ctx.resume(); return true; }
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.15;
-    comp.connect(ctx.destination);
+    probe = ctx.createAnalyser(); probe.fftSize = 256; probeBuf = new Float32Array(256);
+    comp = makeComp();
+    ctx.onstatechange = () => { if (ctx.state !== 'running') { try { ctx.resume(); } catch { } } };
     master = ctx.createGain(); master.gain.value = volume;
     shaper = makeShaper(); lowp = ctx.createBiquadFilter(); lowp.type = 'lowpass'; lowp.frequency.value = 5200; lowp.Q.value = 0.7;
     rebuildChain();
     const n = ctx.sampleRate * 2; noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     if (ctx.audioWorklet) {
-      try { const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })); ctx.audioWorklet.addModule(url).then(() => { crushNode = new AudioWorkletNode(ctx, 'crush'); rebuildChain(); }).catch(() => { }); } catch { }
+      try { const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' })); ctx.audioWorklet.addModule(url).then(() => { crushNode = new AudioWorkletNode(ctx, 'crush'); crushNode.onprocessorerror = () => { try { crushNode.disconnect(); } catch { } crushNode = null; rebuildChain(); }; rebuildChain(); }).catch(() => { }); } catch { }
     }
     loadManifest();
     return true;
@@ -94,7 +122,8 @@ function playFile(name, pos, vol = 1, rate = 1) {
 
 // Изход за звук: позиционен (PannerNode) или обикновен.
 function out(pos, vol = 1, kind = 'fx') {
-  const g = ctx.createGain(); g.gain.value = vol * (kind === 'steps' ? mixSteps : mixFx);
+  const g = ctx.createGain(); g.gain.value = Number.isFinite(vol) ? vol * (kind === 'steps' ? mixSteps : mixFx) : 0;
+  if (pos && !(Number.isFinite(pos[0]) && Number.isFinite(pos[1]) && Number.isFinite(pos[2]))) pos = null;
   if (pos) {
     const p = ctx.createPanner();
     p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 3.5; p.rolloffFactor = 1.35; p.maxDistance = 200;
@@ -165,6 +194,7 @@ function windInit() {
 
 export const audio = {
   init() { ensure(); },
+  debug() { return { state: ctx?.state, gain: master?.gain.value, volume, healed, retro, crush: !!crushNode }; },
   get volume() { return volume; },
   get retro() { return retro; },
   setVolume(v) { volume = Math.max(0, Math.min(1, v)); if (master) master.gain.value = volume; },
@@ -178,7 +208,7 @@ export const audio = {
   },
 
   setListener(x, y, z, fx, fy, fz) {
-    if (!ctx) return; const L = ctx.listener;
+    if (!ctx || !(Number.isFinite(x + y + z + fx + fy + fz)) || (!fx && !fy && !fz)) return; const L = ctx.listener;
     if (L.positionX) {
       L.positionX.value = x; L.positionY.value = y; L.positionZ.value = z;
       L.forwardX.value = fx; L.forwardY.value = fy; L.forwardZ.value = fz; L.upX.value = 0; L.upY.value = 1; L.upZ.value = 0;
@@ -220,7 +250,8 @@ export const audio = {
   flashBang(pos) { if (!ensure()) return; if (playFile('flash_explode', pos, 1.6)) return; const o = out(pos, 1.6); noise(o, { dur: 0.32, type: 'highpass', f: 1500, vol: 0.9 }); tone(o, { f: 3600, f2: 2400, dur: 0.18, type: 'square', vol: 0.3 }); noise(o, { dur: 0.7, type: 'lowpass', f: 900, vol: 0.35 }); },
   flashed(d, a = 1) {
     if (!ensure()) return; const t = ctx.currentTime;
-    if (master) { master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(volume * 0.18, t, 0.02); master.gain.setTargetAtTime(volume, t + d * 0.75, d * 0.2 + 0.05); }
+    d = Number.isFinite(d) ? Math.max(0.2, Math.min(8, d)) : 2; a = Number.isFinite(a) ? a : 1;
+    if (master) { master.gain.cancelScheduledValues(t); master.gain.setTargetAtTime(volume * 0.18, t, 0.02); master.gain.setValueAtTime(volume * 0.18, t + d * 0.75); master.gain.linearRampToValueAtTime(volume, t + d * 0.75 + d * 0.3 + 0.1); flashUntil = performance.now() + (d * 1.05 + 0.3) * 1000; }
     const o = out(null, 0.5 * a); tone(o, { f: 4200, dur: Math.max(0.6, d), type: 'sine', vol: 0.12 * a }); tone(o, { f: 6100, dur: Math.max(0.4, d * 0.7), type: 'sine', vol: 0.05 * a });
   },
   smokePop(pos) { if (!ensure()) return; if (playFile('smoke_pop', pos, 1.2)) return; const o = out(pos, 1.2); noise(o, { dur: 0.5, type: 'lowpass', f: 700, vol: 0.4 }); noise(o, { dur: 1.6, type: 'highpass', f: 2500, vol: 0.1 }); tone(o, { f: 160, f2: 60, dur: 0.3, type: 'sine', vol: 0.3 }); },
