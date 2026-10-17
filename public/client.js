@@ -16,6 +16,7 @@ import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
+import { Ragdoll, rememberRest, resetRagdollPose, applyRagdoll } from './ragdoll.js';
 import { keyLabel } from './settings.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
 
@@ -304,7 +305,7 @@ function makeModel(p) {
   shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.02; shadow.renderOrder = 1;
   rig.add(head, body, legL, legR, aim, bomb); g.add(rig, shadow);
   const m = { shX: sh.x, shY: sh.y, char, tick: c.tick, g, rig, head, body, legL, legR, aim, armR, armL, handR, handL, gunHolder, gunModel: null, gunKey: '', flash: null, bomb, shadow, flashUntil: 0, swingT: 0, swingKind: 'l', team: p.tm, name: p.n, lie: 0, lastX: p.x, lastZ: p.z, phase: 0, stepAcc: 0, wasG: true, crAmt: 0, lastY: p.y };
-  scene.add(g); return m;
+  rememberRest(m); scene.add(g); return m;
 }
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3(), _fwd = new THREE.Vector3(0, 0, -1);
 function setArm(arm, hand, from, to, side) { arm.set(from, to, side); hand.position.copy(to); }
@@ -370,6 +371,14 @@ function updateModels(dt) {
     if (!m || m.team !== p.tm || m.char !== charOf(p.i, p.tm)) { if (m) disposeModel(m); m = makeModel(p); models.set(p.i, m); if (p.tm === S.me.tm) m.g.add(nameSprite(p.n, TEAM_COL[p.tm])); }
     const pose = poseOf(p.i, rt) || p;
     m.g.visible = !(S.specId === p.i && !alive()) && !p.po;           // тялото на поетия бот се скрива (на негово място е играчът)
+    // смърт: ragdoll (верле симулация, само на клиента); заспива след 2–3 с и остава до края на рунда
+    if (!p.al && S.world && !S.bsp) {
+      if (!m.rag) { const h = deathHits.get(p.i); deathHits.delete(p.i); m.rag = new Ragdoll(m.shX, { x: m.lastPX ?? pose.x, y: m.lastPY ?? pose.y, z: m.lastPZ ?? pose.z, yw: pose.yw, cr: pose.cr }, h && performance.now() - h.t < 4000 ? h : null, S.world, p.i.length * 7 + p.i.charCodeAt(p.i.length - 1)); m.ragDirty = true; }
+      if (m.rag.step(dt) || m.ragDirty) { applyRagdoll(m, m.rag, setArm); m.ragDirty = false; }
+      m.lastPX = pose.x; m.lastPY = pose.y; m.lastPZ = pose.z; continue;
+    }
+    if (m.rag) { resetRagdollPose(m); m.lie = 0; m.lieDir = undefined; m.deadY = undefined; }
+    m.lastPX = pose.x; m.lastPY = pose.y; m.lastPZ = pose.z;
     m.g.position.set(pose.x, pose.y, pose.z);
     m.g.rotation.y = pose.yw;
     m.head.rotation.x = clamp(pose.pt * 0.8, -0.75, 0.75); m.head.rotation.y = 0; m.head.rotation.z = 0; m.aim.rotation.x = clamp(pose.pt * 0.95, -1.1, 1.1);   // глава: само накланяне, ограничено спрямо торса
@@ -657,6 +666,8 @@ socket.on('denied', d => {
   S.nextFire = Math.max(S.nextFire, Date.now() + d.wait); S.shotIdx = Math.max(0, S.shotIdx - 1);
 });
 socket.on('err', t => toast(t, 1500));
+const deathHits = new Map();
+socket.on('died', d => { deathHits.set(d.i, { ...d, t: performance.now() }); });
 socket.on('feed', f => {
   const el = document.createElement('div');
   const c = t => t === 'att' ? 'att-c' : 'def-c';

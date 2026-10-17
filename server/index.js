@@ -100,6 +100,7 @@ const syncNades = p => { p.inv.n = NADE_ORDER.reduce((s, k) => s + p.inv.g[k], 0
 const SLOT_WEAPON = (p, slot) => (slot === 'pr' ? p.inv.pr : slot === 'se' ? p.inv.se : slot === 'kn' ? 'knife' : slot === 'n' ? nextNade(p) : null);
 
 // ---------- Стая ----------
+const DEATH_FORCE = { pistol: 3, deagle: 5.5, smg: 3.2, rifle: 4.6, shotgun: 7, sniper: 8, knife: 1.2, grenade: 9, bomb: 11, molotov: 0, fall: 0 };
 class Room {
   constructor(code) {
     this.code = code;
@@ -401,7 +402,7 @@ class Room {
     this.emit('boom', { x: b.x, y: b.y + 0.5, z: b.z, r: CFG.BOMB_RADIUS, big: true });
     for (const p of this.players.values()) {
       if (!p.alive) continue;
-      if (Math.hypot(p.x - b.x, p.y - b.y, p.z - b.z) < CFG.BOMB_RADIUS) this.hurt(p, null, 1000, 'bomb', false, { ignoreTeam: true, noArmor: true });
+      if (Math.hypot(p.x - b.x, p.y - b.y, p.z - b.z) < CFG.BOMB_RADIUS) this.hurt(p, null, 1000, 'bomb', false, { ignoreTeam: true, noArmor: true, from: [b.x, b.y + 0.3, b.z] });
     }
     this.breakRadius(b.x, b.y + 0.5, b.z, 7);
   }
@@ -422,16 +423,23 @@ class Room {
     victim.hp -= d;
     victim.socket.emit('hurt', { dmg: d, from: attacker && attacker !== victim ? [attacker.x, attacker.z] : null });
     if (victim.bot && attacker && attacker !== victim) victim.bot.onHurt(attacker, d);
-    if (victim.hp <= 0) this.kill(victim, attacker, weapon, head);
+    if (victim.hp <= 0) this.kill(victim, attacker, weapon, head, opts);
     return d;
   }
 
-  kill(victim, attacker, weapon, head) {
+  kill(victim, attacker, weapon, head, opts = {}) {
     victim.hp = 0; victim.alive = false; victim.deaths++; victim.using = false; victim.useP = 0;
     if (victim.inv.bomb) this.dropBomb(victim);
     if (attacker && attacker !== victim && attacker.team !== victim.team) {
       attacker.kills++;
       attacker.money = Math.min(CFG.MAX_MONEY, attacker.money + (WEAPONS[weapon]?.reward ?? 300));
+    }
+    // клиентски ragdoll: накъде и колко силно да падне тялото (оръжията удрят силно, ножът и огънят – слабо; изстрел в главата – по-силно)
+    const org = opts.from || (attacker && attacker !== victim ? [attacker.x, attacker.y + 1.5, attacker.z] : null);
+    if (!this.run) {
+      let dx = 0, dy = 0.25, dz = 0, f = 0;
+      if (org) { dx = victim.x - org[0]; dy = victim.y + 1.1 - org[1]; dz = victim.z - org[2]; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy = dy / l * 0.5 + 0.3; dz /= l; f = DEATH_FORCE[weapon] ?? 4; if (head) f *= 1.6; }
+      this.emit('died', { i: victim.id, x: victim.x, y: victim.y, z: victim.z, dx: +dx.toFixed(3), dy: +dy.toFixed(3), dz: +dz.toFixed(3), f: +f.toFixed(2), hd: head ? 1 : 0 });
     }
     this.emit('feed', { k: attacker ? attacker.name : null, v: victim.name, w: weapon, hd: head, kt: attacker ? attacker.team : null, vt: victim.team });
   }
@@ -796,7 +804,7 @@ class Room {
       }
       if (blocked) continue;
       const dmg = CFG.NADE_DMG * (1 - dist / CFG.NADE_RADIUS);
-      if (dmg >= 1) this.hurt(p, owner || null, dmg, 'grenade', false, { ignoreTeam: p.id === g.owner, ratio: 1.0 });
+      if (dmg >= 1) this.hurt(p, owner || null, dmg, 'grenade', false, { ignoreTeam: p.id === g.owner, ratio: 1.0, from: [g.x, g.y, g.z] });
     }
     this.breakRadius(g.x, g.y, g.z, CFG.NADE_BREAK);
   }
