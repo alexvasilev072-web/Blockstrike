@@ -179,3 +179,16 @@ body.ingame #musicBar { display: none; }
 
 /* оръжия на земята: подсказка за размяна */
 #pickHint { display: none; position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%); padding: 5px 14px; background: rgba(10,13,18,.78); border: 2px solid #ffd34d; color: #ffe9a6; font-size: 18px; pointer-events: none; }
+
+/* панел с оръжията долу вдясно */
+#wpanel { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-bottom: 8px; opacity: .42; transition: opacity .9s ease; pointer-events: none; }
+#wpanel.flash { opacity: .95; transition: opacity .12s ease; }
+.wprow { display: flex; align-items: center; gap: 6px; }
+.wpkey { font-size: clamp(11px, 1.6vh, 15px); color: #cfd8e6; min-width: 12px; text-align: center; font-weight: 700; text-shadow: 1px 1px 0 #000; }
+.wpicons { display: flex; gap: 4px; }
+.wpicon { position: relative; height: clamp(20px, 3.8vh, 34px); aspect-ratio: 46 / 20; opacity: .78; }
+.wpicon img { width: 100%; height: 100%; image-rendering: pixelated; filter: brightness(.85); display: block; }
+.wpicon i { position: absolute; right: -2px; bottom: -4px; font-style: normal; font-size: clamp(9px, 1.2vh, 12px); color: #fff; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000; }
+.wprow.on .wpkey { color: #ffd34d; }
+.wpicon.on { opacity: 1; }
+.wpicon.on img { filter: brightness(1.15) drop-shadow(0 0 3px #ffd34d) drop-shadow(0 0 1px #ffd34d); }

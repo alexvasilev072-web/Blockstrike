@@ -2,7 +2,7 @@
 // входът и предвиждането на собственото движение (физика като в CS2).
 import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
-import { NADE_IDS, nadePrice, WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
+import { NADE_IDS, NADE_ORDER, NADE_W, nadePrice, WEAPONS, ITEMS, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
 import { stepBody, platformsAt } from '/shared/physics.js';
 import { Bsp, decodeF32, decodeU8, decodeU32 } from '/shared/bsp.js';
@@ -16,6 +16,7 @@ import { buildCharacter, makeArm, defaultChar } from './characters.js';
 import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
+import { weaponIcon } from './wicons.js';
 import { Ragdoll, rememberRest, resetRagdollPose, applyRagdoll } from './ragdoll.js';
 import { keyLabel } from './settings.js';
 import { buildModel, modelIdFor, skinFor, BP, VS } from './voxmodel.js';
@@ -422,6 +423,38 @@ function updateModels(dt) {
     if (p.us && p.al) { m.useT = (m.useT || 0) - dt; if (m.useT <= 0) { m.useT = p.us === 1 ? 0.5 : 0.8; (p.us === 1 ? audio.plantTick : audio.defuseTick)([pose.x, pose.y + 0.5, pose.z]); } }
   }
   for (const [id, m] of models) if (!ids.has(id)) { disposeModel(m); models.delete(id); }
+}
+
+// ================= Панел с оръжията (долу вдясно) =================
+// Редове: 1 основно, 2 пистолет, 3 нож, 4 гранати, бомба (G). Оръжието в ръката е ярко с акцент; останалите са полупрозрачни.
+// При смяна/взимане/хвърляне панелът за миг става по-видим и после пак избледнява.
+const wpRows = new Map(); let wpSig = '', wpTimer = 0;
+function wpRow(key, label) {
+  let r = wpRows.get(key); if (r) return r;
+  r = { el: document.createElement('div'), icons: document.createElement('div'), n: document.createElement('span') };
+  r.el.className = 'wprow'; r.n.className = 'wpkey'; r.n.textContent = label; r.icons.className = 'wpicons'; r.el.append(r.icons, r.n); $('#wpanel').appendChild(r.el); wpRows.set(key, r); return r;
+}
+function renderWpanel(m) {
+  const P = $('#wpanel'); if (!P) return; const show = alive() && S.mode === 'comp' && S.inGame; P.style.display = show ? '' : 'none'; if (!show) return;
+  const inv = m.inv || {}, g = inv.g || {}, cur = m.w, rows = [];
+  rows.push(['pr', '1', inv.pr ? [[inv.pr, 0]] : []]);
+  rows.push(['se', '2', inv.se ? [[inv.se, 0]] : []]);
+  rows.push(['kn', '3', [['knife', 0]]]);
+  rows.push(['n', '4', NADE_ORDER.filter(k => g[k] > 0).map(k => [NADE_W[k], g[k]])]);
+  rows.push(['bomb', 'G', inv.bomb ? [['bomb', 0]] : []]);
+  const sig = rows.map(r => r[0] + ':' + r[2].map(i => i[0] + i[1]).join(',')).join('|') + '#' + cur;
+  if (sig === wpSig) return;
+  if (wpSig) { P.classList.add('flash'); clearTimeout(wpTimer); wpTimer = setTimeout(() => P.classList.remove('flash'), 1800); }
+  wpSig = sig;
+  for (const [key, label, list] of rows) {
+    const r = wpRow(key, label); r.el.style.display = list.length ? '' : 'none'; r.icons.textContent = '';
+    for (const [id, cnt] of list) {
+      const im = document.createElement('div'); im.className = 'wpicon' + (id === cur ? ' on' : ''); const img = new Image(); img.src = weaponIcon(id); img.alt = ''; im.appendChild(img);
+      if (cnt > 1) { const c = document.createElement('i'); c.textContent = '×' + cnt; im.appendChild(c); }
+      r.icons.appendChild(im);
+    }
+    r.el.classList.toggle('on', list.some(i => i[0] === cur));
+  }
 }
 
 // ================= Оръжия на земята =================
@@ -1152,7 +1185,8 @@ function updateHud() {
   $('#ammo').style.visibility = noAmmo ? 'hidden' : 'visible';
   $('#ammo b').textContent = m.mag; $('#ammo span').textContent = NADE_IDS.includes(m.w) ? '' : ' / ' + m.res;
   { const g = m.inv.g || {}, nd = [g.he ? 'HE×' + g.he : '', g.flash ? '⚡×' + g.flash : '', g.smoke ? '☁×' + g.smoke : '', g.molo ? '🔥×' + g.molo : ''].filter(Boolean).join(' ');
-    $('#items').textContent = [m.inv.bomb ? '💣 Бомба (G – хвърли)' : '', m.kit ? '🔧 Kit' : '', nd ? 'Гранати: ' + nd + ' (4 – смени)' : ''].filter(Boolean).join('  '); }
+    $('#items').textContent = m.kit ? '🔧 Defuse kit' : ''; }
+  renderWpanel(m);
   const us = m.us;
   $('#useBar').classList.toggle('hidden', !us);
   if (us) { const nt = performance.now(); if (nt >= (S.useTickT || 0)) { S.useTickT = nt + (us.k === 'plant' ? 500 : 800); (us.k === 'plant' ? audio.plantTick : audio.defuseTick)(null); } } else S.useTickT = 0;
