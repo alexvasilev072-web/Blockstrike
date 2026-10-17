@@ -484,6 +484,17 @@ function updateGroundItems(dt) {
 function clearGroundItems() { for (const o of itemMeshes.values()) scene.remove(o.g); itemMeshes.clear(); }
 socket.on('got', () => audio.pickup());
 // подсказка „E – вземи …“: има оръжие на земята наблизо, а слотът ти е зает (иначе се взима само при минаване)
+// име на мястото, на което е играчът (или наблюдаваният): зоните са в картата (zones: [име, x1, z1, x2, z2])
+function updateZoneName() {
+  const el = $('#zoneName'); if (!el) return; const zs = S.mapJson?.zones;
+  if (!zs || S.mode !== 'comp') { el.style.display = 'none'; return; }
+  let x = S.pos.x, z = S.pos.z;
+  if (!alive() && S.specId) { const q = poseOf(S.specId, serverNow() - 100); if (q) { x = q.x; z = q.z; } }
+  let name = '';
+  for (const [n, x1, z1, x2, z2] of zs) if (x >= x1 && x < x2 && z >= z1 && z < z2) { name = n; break; }
+  if (!name) { const sites = S.mapJson.sites || {}; for (const k in sites) { const [a, b, c2, d] = sites[k]; if (x >= a && x <= c2 + 1 && z >= b && z <= d + 1) name = 'Точка ' + k; } }
+  el.textContent = name; el.style.display = name ? '' : 'none';
+}
 function updatePickHint() {
   const el = $('#pickHint'); if (!el) return; let best = null;
   if (alive() && S.mode === 'comp' && S.snap?.it?.length && S.me.inv) {
@@ -1168,7 +1179,7 @@ function frame(nowMs) {
   vmod.render(renderer);
   if (!S.bsp && now - (S.radarT || 0) > 33) { S.radarT = now; const f = isAlive ? { x: S.pos.x, z: S.pos.z, yaw: S.yaw } : (S.specId && poseOf(S.specId, serverNow() - 100)) ? (() => { const q = poseOf(S.specId, serverNow() - 100); return { x: q.x, z: q.z, yaw: q.yw }; })() : { x: S.pos.x, z: S.pos.z, yaw: S.yaw }; drawRadar($('#radar'), S, atlas, f, TEAM_COL); }
 
-  hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); updatePickHint(); }
+  hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); updatePickHint(); updateZoneName(); }
   { const pf3 = performance.now(); perf.sum[0] += pf1 - pf0; perf.sum[1] += pf2 - pf1; perf.sum[2] += pf3 - pf2; perf.sum[3] += pf3 - pf0; perf.max = Math.max(perf.max, pf3 - pf0); perf.n++; perfReport(dt); }
 }
 requestAnimationFrame(frame); window.__frame = frame; window.__vm = vmod; window.__socket = socket; window.__renderer = renderer;
