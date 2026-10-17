@@ -119,6 +119,7 @@ class Room {
     this.bomb = null;      // заложена бомба
     this.drop = null;      // паднала бомба {x,y,z}
     this.nades = []; this.smokes = []; this.fires = [];
+    this.items = []; this.iid = 1;     // оръжия на земята {id,w,mag,res,x,y,z,v*,rest,owner,free}
     this.nid = 1;
     this.started = { att: 0, def: 0 };
     this.lastTick = Date.now();
@@ -217,7 +218,7 @@ class Room {
   startRun() {
     const now = Date.now();
     this.round = 1; this.sc = { att: 0, def: 0 }; this.phase = 'live'; this.phaseEnd = now + 1e11; this.roundStart = now; this.liveStart = now;
-    this.world = this.map.world.clone(); this.changes = []; this.bomb = null; this.drop = null; this.nades = []; this.best = new Map();
+    this.world = this.map.world.clone(); this.changes = []; this.bomb = null; this.drop = null; this.items = []; this.nades = []; this.best = new Map();
     let i = 0;
     for (const p of this.players.values()) { p.kills = 0; p.deaths = 0; this.spawnRun(p, i++); }
     this.emit('gameStart', { mapId: this.mapId, mode: this.mode, changes: [] });
@@ -316,7 +317,7 @@ class Room {
     }
     this.world = this.map.world.clone();
     this.changes = [];
-    this.bomb = null; this.drop = null;
+    this.bomb = null; this.drop = null; this.items = [];
     this.nades = []; this.smokes = []; this.fires = [];
     const idx = { att: 0, def: 0 };
     this.started = { att: 0, def: 0 };
@@ -324,7 +325,7 @@ class Room {
       if (!p.alive) { const m = p.money; this.resetLoadout(p); p.money = m; }
       p.inv.bomb = false;
       p.alive = true; p.hp = 100;
-      p.weapon = p.inv.pr || p.inv.se;
+      p.weapon = p.inv.pr || p.inv.se || 'knife';
       p.reloadEnd = 0; p.using = false; p.useP = 0; p.shotIdx = 0; p.cr = false; p.g = true; p.wk = false; p.sc = false;
       const sp = this.map.json.spawns[p.team];
       const [sx, sz, sy = 1] = sp[idx[p.team]++ % sp.length];
@@ -430,6 +431,7 @@ class Room {
   kill(victim, attacker, weapon, head, opts = {}) {
     victim.hp = 0; victim.alive = false; victim.deaths++; victim.using = false; victim.useP = 0;
     if (victim.inv.bomb) this.dropBomb(victim);
+    if (!this.run) for (const slot of ['pr', 'se']) this.dropSlot(victim, slot, false);       // оръжията падат до тялото (с малко разпръскване)
     if (attacker && attacker !== victim && attacker.team !== victim.team) {
       attacker.kills++;
       attacker.money = Math.min(CFG.MAX_MONEY, attacker.money + (WEAPONS[weapon]?.reward ?? 300));
@@ -469,6 +471,88 @@ class Room {
     this.drop = this.settleDrop(t.x, t.y, t.z, p);
     this.dropOwner = at ? p.id : null; this.dropFree = Date.now() + (at ? 1500 : 0);
     this.emit('msg', { t: 'drop' });
+  }
+  // ----- оръжия на земята -----
+  spawnItem(w, am, x, y, z, vx, vy, vz, owner) {
+    this.items.push({ id: this.iid++, w, mag: am ? am.mag : WEAPONS[w].mag, res: am ? am.res : WEAPONS[w].reserve, x, y, z, vx, vy, vz, rest: false, owner: owner || null, free: Date.now() + (owner ? 1000 : 0), t0: Date.now() });
+    while (this.items.length > CFG.MAX_ITEMS) this.items.shift();            // най-старите изчезват първи
+    return this.items[this.items.length - 1];
+  }
+  // пуска оръжието от слота (pr/se); thrown = хвърляне напред по погледа, иначе пада до играча
+  dropSlot(p, slot, thrown) {
+    const id = p.inv[slot]; if (!id || !WEAPONS[id] || WEAPONS[id].slot !== slot) return false;
+    const am = p.ammo[id]; delete p.ammo[id]; p.inv[slot] = null;
+    if (p.weapon === id) { p.weapon = p.inv.pr || p.inv.se || 'knife'; p.reloadEnd = 0; p.shotIdx = 0; p.sc = false; p.nextShot = Date.now() + CFG.SWITCH_DELAY; p.useP = 0; if (p.alive) this.emit('equip', { i: p.id, w: p.weapon }); }
+    if (thrown) {
+      const f = dirFrom(p.yw, clamp(p.pt, -1.2, 1.2)), eye = p.y + (p.cr ? MOVE.EYE_CROUCH : MOVE.EYE_STAND) - 0.2;
+      let x = p.x + f[0] * 0.45, z = p.z + f[2] * 0.45; const y = eye + f[1] * 0.45;
+      if (this.world.solid(Math.floor(x), Math.floor(y), Math.floor(z))) { x = p.x; z = p.z; }
+      this.spawnItem(id, am, x, y, z, f[0] * 6, f[1] * 6 + 2.2, f[2] * 6, p.id);
+    } else {
+      const a = Math.random() * Math.PI * 2, k = slot === 'pr' ? 0.55 : -0.55;           // основното и пистолетът падат встрани един от друг
+      this.spawnItem(id, am, p.x + Math.cos(a) * 0.15 * k, p.y + 0.5, p.z + Math.sin(a) * 0.15 * k, Math.cos(a) * 1.4 + k * 1.6, 2.6 + Math.random(), Math.sin(a) * 1.4, null);
+    }
+    return true;
+  }
+  // клавиш G: хвърля оръжието в ръката (основно/пистолет); ако в ръката няма оръжие (нож/граната) – бомбата, ако я носиш
+  dropHeld(p) {
+    if (this.run || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return;
+    const w = WEAPONS[p.weapon];
+    if (w && (w.slot === 'pr' || w.slot === 'se')) { this.dropSlot(p, w.slot, true); return; }
+    if (p.inv.bomb) this.throwBomb(p);
+  }
+  // размяна (E): оръжието от земята заменя това в същия слот; старото пада на мястото на играча
+  swapItem(p, itemId) {
+    if (this.run || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return false;
+    const i = this.items.findIndex(q => q.id === itemId); if (i < 0) return false;
+    const it = this.items[i], slot = WEAPONS[it.w].slot;
+    if (Math.hypot(p.x - it.x, p.z - it.z) > 2.4 || Math.abs(p.y - it.y) > 1.8) return false;
+    this.items.splice(i, 1);
+    const old = p.inv[slot];
+    if (old) { const am = p.ammo[old]; delete p.ammo[old]; this.spawnItem(old, am, p.x, p.y + 0.4, p.z, 0.3 * Math.sin(p.yw), 1.6, 0.3 * Math.cos(p.yw), p.id); }
+    p.inv[slot] = it.w; p.ammo[it.w] = { mag: it.mag, res: it.res };
+    if (!old || p.weapon === old || slot === 'pr') { p.weapon = it.w; p.reloadEnd = 0; p.shotIdx = 0; p.sc = false; p.nextShot = Date.now() + CFG.SWITCH_DELAY; this.emit('equip', { i: p.id, w: p.weapon }); }
+    p.socket.emit('got', { w: it.w });
+    return true;
+  }
+  updateItems(dt) {
+    for (let k = this.items.length - 1; k >= 0; k--) {
+      const g = this.items[k]; if (g.rest) { if (!this.world.solid(Math.floor(g.x), Math.floor(g.y - 0.05), Math.floor(g.z))) g.rest = false; else continue; }
+      const steps = 3, sdt = dt / steps;
+      for (let s = 0; s < steps; s++) {
+        g.vy -= 20 * sdt;
+        for (const ax of ['x', 'y', 'z']) {
+          const n = g[ax] + g['v' + ax] * sdt, t = { x: g.x, y: g.y, z: g.z }; t[ax] = n;
+          const hy = ax === 'y' ? t.y : t.y + 0.2;
+          if (this.world.solid(Math.floor(t.x), Math.floor(hy), Math.floor(t.z))) {
+            g['v' + ax] *= ax === 'y' ? -0.25 : -0.3;
+            if (ax === 'y') { g.vx *= 0.6; g.vz *= 0.6; if (Math.abs(g.vy) < 0.8) g.vy = 0; }
+          } else g[ax] = n;
+        }
+      }
+      if (Math.hypot(g.vx, g.vy, g.vz) < 0.25 && this.world.solid(Math.floor(g.x), Math.floor(g.y - 0.05), Math.floor(g.z))) { g.rest = true; g.vx = g.vy = g.vz = 0; const ry = Math.round(g.y); if (Math.abs(ry - g.y) < 0.2) g.y = ry; }
+      if (g.y < -8) this.items.splice(k, 1);
+    }
+  }
+  // автоматично вдигане: празен слот; ботовете сменят и с по-добро оръжие
+  pickItems(now) {
+    if (!this.items.length) return;
+    for (const p of this.players.values()) {
+      if (!p.alive) continue;
+      for (let k = 0; k < this.items.length; k++) {
+        const it = this.items[k];
+        if (it.owner === p.id && now < it.free) continue;
+        if (Math.hypot(p.x - it.x, p.z - it.z) > 1.0 || Math.abs(p.y - it.y) > 1.6) continue;
+        const slot = WEAPONS[it.w].slot, cur = p.inv[slot];
+        if (cur) { if (p.bot && (WEAPONS[it.w].price || 0) > (WEAPONS[cur].price || 0) + 250 && now > (p.pickAt || 0)) { p.pickAt = now + 3000; this.swapItem(p, it.id); break; } continue; }
+        this.items.splice(k, 1);
+        p.inv[slot] = it.w; p.ammo[it.w] = { mag: it.mag, res: it.res };
+        if (slot === 'pr' && !NADE[p.weapon]) { p.weapon = it.w; p.reloadEnd = 0; p.shotIdx = 0; p.sc = false; p.nextShot = now + CFG.SWITCH_DELAY; this.emit('equip', { i: p.id, w: p.weapon }); }
+        else if (slot === 'se' && p.weapon === 'knife' && !p.inv.pr) { p.weapon = it.w; p.nextShot = now + CFG.SWITCH_DELAY; this.emit('equip', { i: p.id, w: p.weapon }); }
+        p.socket.emit('got', { w: it.w });
+        break;
+      }
+    }
   }
   // Клавиш G: носителят хвърля бомбата пред себе си
   throwBomb(p) {
@@ -693,7 +777,7 @@ class Room {
       x: p.x + f[0] * 0.5, y: eye + f[1] * 0.5 - 0.1, z: p.z + f[2] * 0.5,
       vx: f[0] * 16, vy: f[1] * 16 + 3, vz: f[2] * 16, fuse: { he: CFG.NADE_FUSE, flash: CFG.FLASH_FUSE, smoke: CFG.SMOKE_FUSE, molo: CFG.MOLO_FUSE }[kind],
     });
-    p.weapon = p.inv.pr || p.inv.se;
+    p.weapon = p.inv.pr || p.inv.se || 'knife';
     p.nextShot = Date.now() + 500;
     this.emit('equip', { i: p.id, w: p.weapon });
     this.emit('throw', { i: p.id });
@@ -923,6 +1007,7 @@ class Room {
       }
     }
     if (this.phase !== 'matchover') for (const p of this.players.values()) if (p.bot) p.bot.update(dt, now);
+    if (this.phase !== 'lobby') { this.updateItems(dt); if (this.phase === 'freeze' || this.phase === 'live') this.pickItems(now); }
     if (this.phase === 'freeze' && now >= this.phaseEnd) {
       // freeze не свършва, докато някой човек още е на екрана „Готов ли си?“ (най-много CFG.READY_WAIT сек повече)
       const waiting = !TEST && [...this.players.values()].some(q => !q.bot && !q.ready) && now < this.roundStart + (CFG.FREEZE + CFG.READY_WAIT) * 1000;
@@ -938,7 +1023,7 @@ class Room {
       this.updateNades(dt);
       if (now >= this.phaseEnd) this.nextRound();
     } else if (this.phase === 'matchover') {
-      if (now >= this.phaseEnd) { this.phase = 'lobby'; this.nades = []; this.bomb = null; this.drop = null; this.emitLobby(); return; }
+      if (now >= this.phaseEnd) { this.phase = 'lobby'; this.nades = []; this.bomb = null; this.drop = null; this.items = []; this.emitLobby(); return; }
     }
     this.broadcast(now);
   }
@@ -952,6 +1037,7 @@ class Room {
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
       bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
+      it: this.items.map(g => [g.id, g.w, r2(g.x), r2(g.y), r2(g.z), g.rest ? 1 : 0]),
       gr: this.nades.map(g => ({ i: g.id, k: g.kind, x: r2(g.x), y: r2(g.y), z: r2(g.z) })),
       sm: this.smokes.map(s => ({ i: s.id, x: s.x, y: s.y, z: s.z, r: s.r, a: Math.round((now - s.t0) / 100) / 10, tl: Math.max(0, Math.round((s.until - now) / 100) / 10) })),
       fr: this.fires.map(f => ({ i: f.id, x: f.x, y: f.y, z: f.z, r: f.r, a: Math.round((now - f.t0) / 100) / 10, tl: Math.max(0, Math.round((f.until - now) / 100) / 10) })),
@@ -1074,6 +1160,8 @@ io.on('connection', socket => {
   socket.on('ready', () => { if (p && !p.ready) { p.ready = true; p.readyAt = Date.now(); } });
   socket.on('use', down => { if (p) { p.using = !!down && p.alive; if (!down || !p.alive) p.useP = 0; } });
   socket.on('dropbomb', () => room && p && room.throwBomb(p));
+  socket.on('dropw', () => room && p && room.dropHeld(p));
+  socket.on('swap', id => room && p && Number.isInteger(id) && room.swapItem(p, id));
   socket.on('leave', cb => {
     if (room && p) { socket.leave(room.code); room.removePlayer(p.id); room = null; p = null; }
     if (typeof cb === 'function') cb({ ok: true });

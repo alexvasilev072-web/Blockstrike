@@ -140,7 +140,7 @@ function onLobby(L) {
 }
 
 function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
-  music.setScene('menu'); document.body.classList.remove('ingame');
+  music.setScene('menu'); document.body.classList.remove('ingame'); clearGroundItems();
   S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
   $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
@@ -424,6 +424,45 @@ function updateModels(dt) {
   for (const [id, m] of models) if (!ids.has(id)) { disposeModel(m); models.delete(id); }
 }
 
+// ================= Оръжия на земята =================
+// Сървърът праща в snap.it: [id, оръжие, x, y, z, лежи]. Тук само се показват: легнали настрани, бавно се въртят, с блестящ пръстен.
+const itemMeshes = new Map(), itemTpl = new Map();
+const ITEM_RING = new THREE.RingGeometry(0.3, 0.46, 24), ITEM_RING_MAT = new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+function itemModel(w) {
+  let t = itemTpl.get(w); const cos = { knife: 'bayonet', skins: {} };
+  if (!t) { t = buildModel(modelIdFor(w, cos), { skin: skinFor(w, cos), step: 2, team: 'att' }); itemTpl.set(w, t); }
+  return t.clone();
+}
+function updateGroundItems(dt) {
+  const arr = S.snap?.it || [], seen = new Set(), tm = performance.now() / 1000, k = Math.min(1, dt * 16);
+  for (const [id, w, x, y, z, rest] of arr) {
+    seen.add(id); let o = itemMeshes.get(id);
+    if (!o) {
+      const g = new THREE.Group(), spin = new THREE.Group(), m = itemModel(w), ring = new THREE.Mesh(ITEM_RING, ITEM_RING_MAT);
+      m.rotation.z = Math.PI / 2; spin.add(m); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.03; ring.renderOrder = 2; g.add(spin, ring); g.position.set(x, y, z); scene.add(g);
+      itemMeshes.set(id, o = { g, spin, ring, w });
+    }
+    o.g.position.x += (x - o.g.position.x) * k; o.g.position.y += (y - o.g.position.y) * k; o.g.position.z += (z - o.g.position.z) * k;
+    o.spin.position.y = rest ? 0.14 + Math.sin(tm * 2 + id) * 0.025 : 0.14; o.spin.rotation.y += dt * (rest ? 1.1 : 9);
+    o.ring.material === ITEM_RING_MAT && (o.ring.scale.setScalar(rest ? 1 + Math.sin(tm * 3 + id) * 0.06 : 0.7));
+  }
+  for (const [id, o] of itemMeshes) if (!seen.has(id)) { scene.remove(o.g); itemMeshes.delete(id); }
+}
+function clearGroundItems() { for (const o of itemMeshes.values()) scene.remove(o.g); itemMeshes.clear(); }
+socket.on('got', () => audio.pickup());
+// подсказка „E – вземи …“: има оръжие на земята наблизо, а слотът ти е зает (иначе се взима само при минаване)
+function updatePickHint() {
+  const el = $('#pickHint'); if (!el) return; let best = null;
+  if (alive() && S.mode === 'comp' && S.snap?.it?.length && S.me.inv) {
+    for (const it of S.snap.it) {
+      const sl = WEAPONS[it[1]]?.slot; if (!sl || !S.me.inv[sl]) continue;
+      const d = Math.hypot(S.pos.x - it[2], S.pos.z - it[4]);
+      if (d < 2.0 && Math.abs(S.pos.y - it[3]) < 1.8 && (!best || d < best.d)) best = { id: it[0], w: it[1], d };
+    }
+  }
+  S.swapHint = best; el.textContent = best ? 'E – вземи ' + WEAPONS[best.w].name : ''; el.style.display = best ? 'block' : 'none';
+}
+
 // ================= Ефекти =================
 const fx = [];
 const partGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
@@ -609,7 +648,7 @@ socket.on('round', async r => {
   await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
-  S.crouching = false; S.crouchAmt = 0; clearNadeFx(); clearFx();
+  S.crouching = false; S.crouchAmt = 0; clearNadeFx(); clearFx(); clearGroundItems();
   audio.roundStart();
   if (r.swapped) banner('СМЯНА НА СТРАНИТЕ', '#ffd34d', 3000);
   else toast(`Рунд ${r.n} — натисни B за магазина`, 3000);
@@ -796,8 +835,9 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
   if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
+  if (e.code === 'KeyE') S.eT = performance.now();
   if (e.code === 'KeyE') { if (!alive() && S.mode === 'comp' && S.specId && String(S.specId).startsWith('bot')) socket.emit('takeover', S.specId); else socket.emit('use', true); }
-  if (e.code === 'KeyG' && alive() && S.me.inv.bomb) socket.emit('dropbomb');
+  if (e.code === 'KeyG' && alive() && !e.repeat) socket.emit('dropw');          // хвърля оръжието в ръката (или бомбата, ако в ръката няма оръжие)
   if (e.code === 'KeyF' && alive() && !S.me.rl && S.phase !== 'lobby') vmod.inspect(Date.now());
   if (e.code.startsWith('Control') || e.code === 'KeyC') e.preventDefault();
 });
@@ -805,7 +845,7 @@ addEventListener('keyup', e => {
   if (S.chatOpen) return;
   S.keys[e.code] = false;
   if (e.code === 'Tab') { S.boardOpen = false; if (!S.boardPinned) $('#board').classList.add('hidden'); }
-  if (e.code === 'KeyE') socket.emit('use', false);
+  if (e.code === 'KeyE') { socket.emit('use', false); if (S.swapHint && alive() && performance.now() - (S.eT || 0) < 300) socket.emit('swap', S.swapHint.id); }   // кратко E = размяна; дълго = залагане/обезвреждане
 });
 // ----- музика: браузърите блокират autoplay – започва при първо кликване/клавиш -----
 for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => music.unlock(), { once: false, capture: true, passive: true });
@@ -1019,7 +1059,7 @@ function frame(nowMs) {
   if (wd?.rreset && now - S.lastShotT > wd.rreset * 1000) { S.shotIdx = 0; S.punchT = [0, 0]; }
   S.punch[0] += (S.punchT[0] - S.punch[0]) * Math.min(1, dt * 14); S.punch[1] += (S.punchT[1] - S.punch[1]) * Math.min(1, dt * 14);
   S.kick = Math.max(0, S.kick - dt * 9);
-  updateModels(dt); updateNades(); updateNadeFx(dt); updateDecals(dt); updateBomb(); updateFx(dt);
+  updateModels(dt); updateNades(); updateNadeFx(dt); updateDecals(dt); updateBomb(); updateFx(dt); updateGroundItems(dt);
   if (flames) flames.material.size = 0.85 + Math.sin(now / 90) * 0.1 + Math.sin(now / 37) * 0.05;
 
   // камера
@@ -1073,7 +1113,7 @@ function frame(nowMs) {
   vmod.render(renderer);
   if (!S.bsp && now - (S.radarT || 0) > 33) { S.radarT = now; const f = isAlive ? { x: S.pos.x, z: S.pos.z, yaw: S.yaw } : (S.specId && poseOf(S.specId, serverNow() - 100)) ? (() => { const q = poseOf(S.specId, serverNow() - 100); return { x: q.x, z: q.z, yaw: q.yw }; })() : { x: S.pos.x, z: S.pos.z, yaw: S.yaw }; drawRadar($('#radar'), S, atlas, f, TEAM_COL); }
 
-  hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); }
+  hudT += dt; if (hudT > 0.05) { hudT = 0; updateHud(); updatePickHint(); }
   { const pf3 = performance.now(); perf.sum[0] += pf1 - pf0; perf.sum[1] += pf2 - pf1; perf.sum[2] += pf3 - pf2; perf.sum[3] += pf3 - pf0; perf.max = Math.max(perf.max, pf3 - pf0); perf.n++; perfReport(dt); }
 }
 requestAnimationFrame(frame); window.__frame = frame; window.__vm = vmod; window.__socket = socket; window.__renderer = renderer;

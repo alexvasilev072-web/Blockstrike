@@ -176,3 +176,6 @@ body.real #realVig { display: block; }
 #musicBar { position: fixed; top: 10px; right: 12px; z-index: 60; display: flex; align-items: center; gap: 6px; background: rgba(10,13,18,.72); border: 2px solid #3a4558; padding: 3px 8px; }
 #musicBar button { padding: 2px 6px; font-size: 16px; background: none; border: 0; } #musicBar input { width: 90px; margin: 0; padding: 0; }
 body.ingame #musicBar { display: none; }
+
+/* оръжия на земята: подсказка за размяна */
+#pickHint { display: none; position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%); padding: 5px 14px; background: rgba(10,13,18,.78); border: 2px solid #ffd34d; color: #ffe9a6; font-size: 18px; pointer-events: none; }
