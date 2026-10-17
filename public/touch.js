@@ -4,7 +4,6 @@
 export const isTouchDevice = () => { try { return matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search); } catch { return false; } };
 
 export function initTouch({ S, settings, onMenu }) {
-  document.body.classList.add('touch');
   const root = document.createElement('div'); root.id = 'touch'; root.className = 'off';
   root.innerHTML = `
     <div id="tLook"></div><div id="tJoy"><i id="tBase"></i><i id="tKnob"></i></div>
@@ -63,7 +62,10 @@ export function initTouch({ S, settings, onMenu }) {
     else if (b.dataset.menu !== undefined) { down(b, () => onMenu?.()); up(b); }
   }
   // следим дали да се показват: само в игра, когато мишката „е хваната“ (т.е. няма меню/магазин/пауза)
-  setInterval(() => { root.classList.toggle('off', !(S.inGame && S.locked)); root.classList.toggle('run', S.mode !== 'comp'); if (!S.locked && jid !== null) { jid = null; setMove(0, 0); base.style.display = knob.style.display = 'none'; } }, 150);
+  let enabled = false;
+  const setEnabled = on => { enabled = !!on; S.touch = enabled; document.body.classList.toggle('touch', enabled); if (!enabled) { setMove(0, 0); jid = lid = null; base.style.display = knob.style.display = 'none'; for (const c of ['KeyC', 'ControlLeft']) S.keys[c] = false; } root.classList.toggle('off', !enabled || !(S.inGame && S.locked)); };
+  setInterval(() => { root.classList.toggle('off', !enabled || !(S.inGame && S.locked)); root.classList.toggle('run', S.mode !== 'comp'); if (!S.locked && jid !== null) { jid = null; setMove(0, 0); base.style.display = knob.style.display = 'none'; } }, 150);
   // никакво скролиране/приближаване/контекстно меню върху играта
-  for (const ev of ['gesturestart', 'contextmenu']) document.addEventListener(ev, e => { if (S.inGame) e.preventDefault(); });
+  for (const ev of ['gesturestart', 'contextmenu']) document.addEventListener(ev, e => { if (S.inGame && enabled) e.preventDefault(); });
+  return { setEnabled };
 }

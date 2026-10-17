@@ -98,6 +98,7 @@
       <h4>Графика</h4>
       <label>Качество <select id="setQuality"><option value="low">Ниско</option><option value="medium">Средно</option><option value="high">Високо</option></select></label>
       <label title="Горна граница е честотата на екрана (V-Sync): монитор на 60 Hz = най-много 60 FPS">Лимит на FPS<select id="setFpsLim"><option value="60">60</option><option value="144">144</option><option value="240">240</option><option value="0">Без лимит</option></select></label>
+      <label title="Автоматично разпознава телефон/таблет; можеш да го смениш ръчно">Управление<select id="setControls"><option value="auto">Автоматично</option><option value="desktop">Компютър (клавиатура и мишка)</option><option value="touch">Телефон / таблет (докосване)</option></select></label>
       <label>Размер на оръжието <span class="pair"><input id="setVm" type="range" min="60" max="130" step="5"><output id="setVmV"></output></span></label>
       <label class="chk"><input id="setReal" type="checkbox"> Реалистична графика (сенки, небе, меки текстури)</label>
       <label class="chk"><input id="setFps" type="checkbox"> Показвай FPS</label>
@@ -193,6 +194,7 @@
       <button class="skinsOpen">Скинове</button>
       <button class="heroOpen">Герои</button>
       
+      <button id="pControls" type="button">Управление</button>
       <button id="pBoard">Резултати</button>
       <button id="pLobby">Към лобито (домакин)</button>
       <button id="pLeave" class="danger">Излез в главното меню</button>

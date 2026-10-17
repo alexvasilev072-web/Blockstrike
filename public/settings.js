@@ -3,7 +3,7 @@ import { audio } from './audio.js';
 import { music } from './music.js';
 
 const KEY = 'bs_settings';
-export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true, retro: false, realistic: true, vmScale: 1, fpsLimit: 0, voice: true, voiceVol: 1, micId: '', pttKey: 'KeyV', musicVol: 0.25, musicMuted: false };
+export const DEFAULTS = { sens: 1, invert: false, fov: 75, vol: 0.7, volFx: 1, volSteps: 1, crossColor: '#5dff7a', crossSize: 8, quality: 'high', showFps: true, retro: false, realistic: true, vmScale: 1, fpsLimit: 0, voice: true, voiceVol: 1, micId: '', pttKey: 'KeyV', musicVol: 0.25, musicMuted: false, controls: 'auto' };
 
 function load() {
   try {
@@ -24,6 +24,7 @@ function sanitize() {
   if (!['low', 'medium', 'high'].includes(settings.quality)) settings.quality = 'high';
   if (!/^#[0-9a-f]{6}$/i.test(settings.crossColor)) settings.crossColor = DEFAULTS.crossColor;
   settings.invert = !!settings.invert; settings.showFps = !!settings.showFps; settings.retro = !!settings.retro; settings.realistic = settings.realistic !== false; settings.vmScale = clamp(settings.vmScale, 0.6, 1.3); settings.fpsLimit = [0, 60, 144, 240].includes(+settings.fpsLimit) ? +settings.fpsLimit : 0;
+  if (!['auto', 'touch', 'desktop'].includes(settings.controls)) settings.controls = 'auto';
   settings.musicVol = clamp(settings.musicVol, 0, 1); settings.musicMuted = !!settings.musicMuted;
   settings.voice = settings.voice !== false; settings.voiceVol = clamp(settings.voiceVol, 0, 1); settings.micId = String(settings.micId || ''); if (!/^[A-Za-z0-9]{1,24}$/.test(String(settings.pttKey))) settings.pttKey = 'KeyV';
 }
@@ -47,7 +48,7 @@ function sync() {   // от обекта към контролите
   $('#setFov').value = settings.fov; $('#setFovV').textContent = settings.fov;
   for (const [id, k] of [['setVol', 'vol'], ['setVolFx', 'volFx'], ['setVolSteps', 'volSteps']]) { $('#' + id).value = Math.round(settings[k] * 100); $('#' + id + 'V').textContent = Math.round(settings[k] * 100) + '%'; }
   $('#setCrossCol').value = settings.crossColor; $('#setCrossSize').value = settings.crossSize; $('#setCrossSizeV').textContent = settings.crossSize + 'px';
-  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps; $('#setRetro').checked = settings.retro; $('#setReal').checked = settings.realistic; $('#setFpsLim').value = String(settings.fpsLimit); $('#setMusic').value = Math.round(settings.musicVol * 100); $('#setMusicV').textContent = settings.musicMuted ? 'изкл.' : Math.round(settings.musicVol * 100) + '%'; if ($('#musicVol')) { $('#musicVol').value = Math.round(settings.musicVol * 100); $('#musicBtn').textContent = settings.musicMuted || settings.musicVol === 0 ? '🔇' : '🔊'; } $('#setVoice').checked = settings.voice; $('#setVoiceVol').value = Math.round(settings.voiceVol * 100); $('#setVoiceVolV').textContent = Math.round(settings.voiceVol * 100) + '%'; $('#setPtt').textContent = keyLabel(settings.pttKey); if ($('#setMic').value !== settings.micId && [...$('#setMic').options].some(o => o.value === settings.micId)) $('#setMic').value = settings.micId; $('#setVm').value = Math.round(settings.vmScale * 100); $('#setVmV').textContent = Math.round(settings.vmScale * 100) + '%';
+  $('#setQuality').value = settings.quality; $('#setFps').checked = settings.showFps; $('#setRetro').checked = settings.retro; $('#setReal').checked = settings.realistic; $('#setFpsLim').value = String(settings.fpsLimit); $('#setControls').value = settings.controls; $('#setMusic').value = Math.round(settings.musicVol * 100); $('#setMusicV').textContent = settings.musicMuted ? 'изкл.' : Math.round(settings.musicVol * 100) + '%'; if ($('#musicVol')) { $('#musicVol').value = Math.round(settings.musicVol * 100); $('#musicBtn').textContent = settings.musicMuted || settings.musicVol === 0 ? '🔇' : '🔊'; } $('#setVoice').checked = settings.voice; $('#setVoiceVol').value = Math.round(settings.voiceVol * 100); $('#setVoiceVolV').textContent = Math.round(settings.voiceVol * 100) + '%'; $('#setPtt').textContent = keyLabel(settings.pttKey); if ($('#setMic').value !== settings.micId && [...$('#setMic').options].some(o => o.value === settings.micId)) $('#setMic').value = settings.micId; $('#setVm').value = Math.round(settings.vmScale * 100); $('#setVmV').textContent = Math.round(settings.vmScale * 100) + '%';
   document.querySelectorAll('.vol').forEach(o => { o.value = Math.round(settings.vol * 100); });
 }
 
@@ -73,6 +74,7 @@ export function initSettings(cb) {
   bind('setVm', el => { settings.vmScale = el.value / 100; });
   bind('setMusic', el => { settings.musicVol = el.value / 100; settings.musicMuted = false; music.unlock(); });
   bind('setFpsLim', el => { settings.fpsLimit = +el.value; }, 'change');
+  bind('setControls', el => { settings.controls = el.value; }, 'change');
   bind('setVoice', el => { settings.voice = el.checked; }, 'change');
   bind('setVoiceVol', el => { settings.voiceVol = el.value / 100; });
   bind('setMic', el => { settings.micId = el.value; }, 'change');

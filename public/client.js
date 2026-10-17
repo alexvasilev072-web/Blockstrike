@@ -672,7 +672,16 @@ const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2,
 initSkins({ onChange: () => sendLoadout() });
 function sendLoadout() { try { const c = JSON.parse(localStorage.getItem('bs_cos') || '{}'); socket.emit('loadout', { knife: c.knife || 'bayonet', skins: c.skins || {}, char: loadChar() }); } catch { } }
 initHeroes({ onChange: () => sendLoadout() });
-if (isTouchDevice()) { S.touch = true; initTouch({ S, settings, onMenu: () => { S.locked = false; releaseInputs(); socket.emit('use', false); updatePause(); } }); }
+// управление: автоматично (по устройството), „Телефон“ или „Компютър“ – превключва се от Настройки или от паузата
+const touchCtl = initTouch({ S, settings, onMenu: () => { S.locked = false; releaseInputs(); socket.emit('use', false); updatePause(); } });
+function controlsMode() { return settings.controls === 'touch' || (settings.controls !== 'desktop' && isTouchDevice()) ? 'touch' : 'desktop'; }
+function applyControls() {
+  const want = controlsMode() === 'touch', was = !!S.touch; touchCtl.setEnabled(want);
+  const b = $('#pControls'); if (b) b.textContent = 'Управление: ' + (want ? 'телефон' : 'компютър');
+  if (was !== want && S.inGame) { if (document.pointerLockElement) document.exitPointerLock(); S.locked = false; releaseInputs(); updatePause(); }   // след смяна – „Продължи“ хваща управлението по новия начин
+}
+$('#pControls').onclick = () => { settings.controls = controlsMode() === 'touch' ? 'desktop' : 'touch'; try { localStorage.setItem('bs_settings', JSON.stringify(settings)); } catch { } const sel = $('#setControls'); if (sel) sel.value = settings.controls; applyControls(); };
+applyControls();
 
 // ================= Мрежови събития =================
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
@@ -1322,5 +1331,5 @@ socket.on('finish', f => {
 const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
 let lastReal = settings.realistic, lastQual = settings.quality;
-initSettings(() => { const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic || lastQual !== settings.quality) { lastReal = settings.realistic; lastQual = settings.quality; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
+initSettings(() => { applyControls(); const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic || lastQual !== settings.quality) { lastReal = settings.realistic; lastQual = settings.quality; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
 initMenuBg();
