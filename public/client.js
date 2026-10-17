@@ -778,7 +778,7 @@ setInterval(() => { const t = performance.now(); socket.emit('ping', () => { S.p
 // ================= Вход (клавиатура / мишка) – само event.code =================
 // Пауза: играта е multiplayer и НЕ спира. Когато мишката се освободи (Esc), персонажът остава на място.
 function updatePause() {
-  const show = S.inGame && !S.locked;
+  const show = S.inGame && !S.locked && !S.buyOpen;
   $('#pLobby').style.display = S.lobby?.hostId === S.id ? '' : 'none';
   $('#clickplay').classList.toggle('hidden', !show);
   if (show) {
@@ -858,13 +858,13 @@ addEventListener('keydown', e => {
   if (!S.inGame) return;
   // Ctrl/Cmd + игрова клавиш не бива да задейства браузърни команди (Ctrl+D отметка, Ctrl+S запазване, Ctrl+A маркиране…)
   if (S.locked && (e.ctrlKey || e.metaKey) && GAME_KEYS.has(e.code)) e.preventDefault();
+  if (S.buyOpen && !S.locked && (e.code === 'KeyB' || e.code === 'Escape')) { e.preventDefault(); closeBuy(); return; }
   if (!S.locked) return;
   if (e.code === 'Tab') { e.preventDefault(); S.boardOpen = true; return; }
   if (e.repeat) { if (e.code === 'Space' || e.code.startsWith('Control')) e.preventDefault(); return; }
   S.keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
   if (e.code === 'KeyB' && S.mode === 'comp') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
-  if (S.buyOpen) { if (buyKey(e)) { e.preventDefault(); return; } }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
   if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
   if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
@@ -943,8 +943,8 @@ addEventListener('keydown', e => {
   if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'KeyY') { e.preventDefault(); openChat(false); }
   else if (e.code === 'KeyU') { e.preventDefault(); openChat(true); }
 });
-function openBuy() { S.buyOpen = true; S.buyPage = 'top'; $('#buy').classList.remove('hidden'); renderBuy(); }
-function closeBuy() { S.buyOpen = false; $('#buy').classList.add('hidden'); }
+function openBuy() { S.buyOpen = true; S.buySig = ''; $('#buy').classList.remove('hidden'); renderBuy(); releaseInputs(); socket.emit('use', false); if (document.pointerLockElement) document.exitPointerLock(); updatePause(); }
+function closeBuy() { const was = S.buyOpen; S.buyOpen = false; $('#buy').classList.add('hidden'); if (was && S.inGame && !S.locked) requestLock(); updatePause(); }
 // Магазин: главна страница (любимо основно, любим пистолет, любим комплект, категории); цифрите избират, 0 е „назад“
 const GEAR = [['armor', 'Броня', 650], ['kit', 'Defuse kit', 400]];
 const NADE_NAMES = { he: 'Граната (HE)', flash: 'Flashbang', smoke: 'Димна граната', molo: 'Молотов' };
@@ -964,26 +964,18 @@ function buyPages() {
   pages.cols = [{ page: 'gear', label: 'Екипировка' }, ...BUY_CATS.map(c => ({ page: c.id, label: c.label })), { page: 'nade', label: 'Гранати' }];
   return pages;
 }
-function buyKey(e) {
-  if (!/^Digit[0-9]$/.test(e.code)) return false;
-  const n = +e.code[5], pages = buyPages();
-  if (n === 0) { if (S.buyPage !== 'top') { S.buyPage = 'top'; renderBuy(); } return true; }
-  if (S.buyPage === 'top' || !S.buyPage) { if (pages.cols[n - 1]) { S.buyPage = pages.cols[n - 1].page; renderBuy(); } return true; }
-  const it = (pages[S.buyPage] || [])[n - 1]; if (it) socket.emit('buy', it.id);
-  return true;
-}
 function renderBuy() {
-  const m = S.me, pages = buyPages(), page = S.buyPage || 'top', cur = pages[page] || [];
-  const row = (it, num) => {
-    const own = buyOwn(it.id), price = buyPrice(it.id), blocked = NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES;
-    return `<div class="buyrow ${m.mo < price || own || blocked ? 'no' : ''}"><span>${num ? '[' + num + '] ' : ''}${it.label}</span><span>${own ? '<em>имаш</em>' : '<b>$' + price + '</b>'}</span></div>`;
+  const m = S.me, pages = buyPages(), g = m.inv.g || {};
+  const sig = [m.mo, m.ar, m.kit, m.inv.pr, m.inv.se, m.inv.n, g.he, g.flash, g.smoke, g.molo, m.tm].join('|');
+  if (S.buySig === sig) return; S.buySig = sig;                                // не пре-рисуваме без промяна (иначе кликовете се губят)
+  const btn = it => {
+    const own = buyOwn(it.id), price = buyPrice(it.id), blocked = NADE_IDS.includes(it.id) && !own && m.inv.n >= CFG.MAX_NADES, off = m.mo < price || own || blocked;
+    return `<button class="bw ${off ? 'no' : ''}" data-buy="${it.id}" type="button"><img src="${weaponIcon(it.id)}" alt=""><b>${it.label}</b><span>${own ? '<em>имаш</em>' : '$' + price}</span></button>`;
   };
-  $('#buy').classList.toggle('wide', page === 'top');
-  $('#buyHelp').textContent = page === 'top' ? '(1–5 – колона, B – затвори)' : '(0 – назад, B – затвори)';
-  const head = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div>`;
-  if (page === 'top') { $('#buyList').innerHTML = head + '<div class="buycols">' + pages.cols.map((c, i) => `<div class="buycol"><h4>[${i + 1}] ${c.label}</h4>${(pages[c.page] || []).map(it => row(it, '')).join('')}</div>`).join('') + '</div>'; return; }
-  $('#buyList').innerHTML = head + cur.map((it, i) => row(it, i + 1)).join('');
+  $('#buyList').innerHTML = `<div class="buyrow"><span>Пари</span><b>$${m.mo}</b></div><div class="buycols">` +
+    pages.cols.map(c => `<div class="buycol"><h4>${c.label}</h4>${(pages[c.page] || []).map(btn).join('')}</div>`).join('') + '</div>';
 }
+$('#buyList').addEventListener('click', e => { const b = e.target.closest('[data-buy]'); if (b && !b.classList.contains('no')) { socket.emit('buy', b.dataset.buy); } });
 
 // ================= Физика на играча: споделеното ядро shared/physics.js (CS2: ускорение, триене, air strafing, bhop; вода, рампи, платформи) =================
 function readInput() {
