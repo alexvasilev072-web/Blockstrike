@@ -136,6 +136,79 @@ const factory = build({ floor: 'concrete', street: 'metal', wall: 'concrete', ac
   env: { sky: '#9aa7b5', fog: [60, 170], ambient: 0.3, sun: 0.9, ground: '#6f7680' },
 });
 
+// ======================= ОРИГИНАЛНИ КАРТИ ЗА 5 СРЕЩУ 5 =======================
+// Това са наши собствени карти (имена, разположение и украса са оригинални). Идеята за „двойка бомбени точки + среден проход + дълъг път“
+// е обща за тактическите игри; не копираме нищо от чужди карти.
+
+// ПЕСЪЧНИ ДВОРОВЕ: защитниците са близо до двете точки; нападателите избират западен или източен проход, или средния двор
+const DUNES = [
+  '####CCCC####',
+  '#BB..##..AA#',
+  '#BB#.bb.#AA#',
+  '#..#.##.#..#',
+  '#.x#....#.c#',
+  '#.##.cc.##.#',
+  '#b..c..c..b#',
+  '###.#..#.###',
+  '#...x..x...#',
+  '#.##.pp.##.#',
+  '#..........#',
+  '##..SSSS..##',
+];
+const dunes = build({ floor: 'sand', street: 'road', wall: 'sandstone', accent: 'brick', crate: 'crate', siteIn: 'sand', lamps: [[10, 10], [85, 10], [10, 85], [85, 85], [47, 40], [47, 62]] }, DUNES, {
+  id: 'dunes', name: 'Пясъчни дворове',
+  description: 'Голяма пустинна карта за 5 срещу 5: западен проход към B, източен към A и среден двор. Защитниците са близо до точките, нападателите имат платформа за снайперист.',
+  maxPlayers: 10, order: 0, big: true,
+  env: { sky: '#8fd0ff', fog: [70, 190], ambient: 0.3, sun: 1, ground: '#c2ab74' },
+});
+
+// ТЕРАСИ: сгради с терасирани дворове, фонтан в средата и точка B зад вътрешните улички
+const TERR = [
+  '####CCCC####',
+  '#AA...##...#',
+  '#AA#.bb#.#.#',
+  '#..#.##..BB#',
+  '#.x....#.BB#',
+  '#.#.cc.#...#',
+  '#b..w..bx..#',
+  '##.#.##.#.##',
+  '#..c....c..#',
+  '#.##.pp.##.#',
+  '#..........#',
+  '##..SSSS..##',
+];
+const terr = build({ floor: 'gravel', street: 'cobble', wall: 'stone', accent: 'brick', crate: 'crate', siteIn: 'gravel', lamps: [[12, 12], [83, 12], [12, 83], [83, 83], [47, 47], [30, 60]] }, TERR, {
+  id: 'terraces', name: 'Тераси',
+  description: 'Средиземноморски квартал за 5 срещу 5: точка A в северозапад, точка B в североизток, фонтан и сгради в средата, много ъгли.',
+  maxPlayers: 10, order: 1, big: true,
+  env: { sky: '#a6d8ff', fog: [75, 200], ambient: 0.3, sun: 1, ground: '#9a9a8c' },
+});
+
+// СТАР КВАРТАЛ: дълга уличка отдясно към B, жилищни сгради отляво към A, среден площад
+const QUAR = [
+  '####CCCC####',
+  '#AAA..#..BB#',
+  '#AAA#b..#BB#',
+  '#.b..#..#..#',
+  '#.#.cc...#.#',
+  '#.b......x.#',
+  '#.#.##.##..#',
+  '#..c....c..#',
+  '##.#.pp.#.##',
+  '#..........#',
+  '#.##....##.#',
+  '##..SSSS..##',
+];
+const quar = build({ floor: 'dirt', street: 'cobble', wall: 'brick', accent: 'stone', crate: 'crate', siteIn: 'gravel', lamps: [[14, 10], [84, 10], [10, 85], [85, 85], [47, 45], [75, 60]] }, QUAR, {
+  id: 'quarter', name: 'Стар квартал',
+  description: 'Градска карта за 5 срещу 5: дълга уличка отдясно към точка B, жилищни сгради отляво към точка A и среден площад.',
+  maxPlayers: 10, order: 2, big: true,
+  env: { sky: '#9db7d3', fog: [65, 180], ambient: 0.28, sun: 0.95, ground: '#7a6a58' },
+});
+
+writeMap(path.join(OUT, 'dunes.json'), dunes);
+writeMap(path.join(OUT, 'terraces.json'), terr);
+writeMap(path.join(OUT, 'quarter.json'), quar);
 writeMap(path.join(OUT, 'oldtown.json'), oldTown);
 writeMap(path.join(OUT, 'factory.json'), factory);
-console.log('Готово: oldtown, factory (96 x 96)');
+console.log('Готово: oldtown, factory, dunes, terraces, quarter (96 x 96)');
