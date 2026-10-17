@@ -1071,7 +1071,8 @@ io.on('connection', socket => {
     if (typeof cb === 'function') cb({ ok: true });
   });
   if (TEST) socket.on('dbgKill', () => { if (room && p && p.alive) room.hurt(p, null, 1000, 'bomb', false, { ignoreTeam: true, noArmor: true }); });
-  if (TEST) socket.on('dbgTp', t => { if (p) { p.x = t.x; p.y = t.y; p.z = t.z; p.hist.push({ t: Date.now(), x: t.x, y: t.y, z: t.z, cr: false }); } });
+  if (TEST) socket.on('dbgKillId', id => { const t = room?.players.get(id); if (t && t.alive) room.hurt(t, p, 1000, t.weapon || 'rifle', true, {}); });
+  if (TEST) socket.on('dbgTp',t => { if (p) { p.x = t.x; p.y = t.y; p.z = t.z; p.hist.push({ t: Date.now(), x: t.x, y: t.y, z: t.z, cr: false }); } });
   socket.on('disconnect', () => { if (room && p) room.removePlayer(p.id); });
 });
 

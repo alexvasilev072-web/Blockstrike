@@ -353,6 +353,13 @@ function pickFall(pose) {
   const free = s => { for (let d = 0.5; d <= 1.9; d += 0.4) { const x = pose.x + fx * d * s, z = pose.z + fz * d * s; for (const dy of [0.25, 0.9]) if (w.solid(Math.floor(x), Math.floor(pose.y + dy), Math.floor(z))) return false; } return true; };
   return free(1) ? 1 : free(-1) ? -1 : 0;
 }
+// височина на първата твърда повърхност под точка (за труповете); без воксел свят остава зададената
+function groundY(x, y, z) {
+  const w = S.world; if (!w || !w.solid) return y;
+  const fx = Math.floor(x), fz = Math.floor(z);
+  for (let yy = Math.floor(y + 0.5); yy >= 0; yy--) if (w.solid(fx, yy - 1, fz)) return yy;
+  return 0;
+}
 function updateModels(dt) {
   const snap = S.snap; if (!snap) return;
   const rt = serverNow() - 100, ids = new Set();
@@ -365,7 +372,7 @@ function updateModels(dt) {
     m.g.visible = !(S.specId === p.i && !alive()) && !p.po;           // тялото на поетия бот се скрива (на негово място е играчът)
     m.g.position.set(pose.x, pose.y, pose.z);
     m.g.rotation.y = pose.yw;
-    m.head.rotation.x = pose.pt * 0.8; m.aim.rotation.x = pose.pt * 0.95;
+    m.head.rotation.x = clamp(pose.pt * 0.8, -0.75, 0.75); m.head.rotation.y = 0; m.head.rotation.z = 0; m.aim.rotation.x = clamp(pose.pt * 0.95, -1.1, 1.1);   // глава: само накланяне, ограничено спрямо торса
     const dx = pose.x - m.lastX, dz = pose.z - m.lastZ, dist = Math.hypot(dx, dz), sp = dist / Math.max(dt, 0.001);
     m.lastX = pose.x; m.lastZ = pose.z;
     m.phase += Math.min(sp, 8) * dt * 2.2;
@@ -392,6 +399,12 @@ function updateModels(dt) {
     m.g.rotation.x = dir === 0 ? -L * 0.28 : dir > 0 ? -L * Math.PI / 2 : L * Math.PI / 2;
     m.g.position.y += dir === 0 ? 0 : L * 0.3;
     m.lieC = dir === 0 ? L : 0;
+    m.shadow.visible = !!p.al;                                           // кръглата сянка е на пода; при легнал труп щеше да стои изправена като черен диск
+    if (!p.al) {                                                        // паднал във въздуха/върху щайга: тялото се спуска до земята, а не виси там, където е умрял
+      if (m.deadY === undefined) { m.deadY = pose.y; m.vy = 0; m.gy = groundY(pose.x, pose.y, pose.z); }
+      m.vy -= 18 * dt; m.deadY += m.vy * dt; if (m.deadY <= m.gy) { m.deadY = m.gy; m.vy = 0; }
+      m.g.position.y = m.deadY + (dir === 0 ? 0 : L * 0.3);
+    } else m.deadY = undefined;
     m.gunHolder.visible = L < 0.08; m.head.rotation.x *= (1 - L); m.aim.rotation.x *= (1 - L);
     if (L > 0.08) { _b.set(m.shX + 0.04, m.shY - 0.6, -0.04); setArm(m.armR, m.handR, _a.set(m.shX, 0, 0), _b, 1); _b.set(-m.shX - 0.04, m.shY - 0.6, -0.04); setArm(m.armL, m.handL, _a.set(-m.shX, 0, 0), _b, -1); }
     m.bomb.visible = !!p.bm && !!p.al;
@@ -433,9 +446,13 @@ function explosion(x, y, z, r, big) {
   spawnParticles(x, y, z, 0x555555, big ? 30 : 14, 8); spawnParticles(x, y, z, 0xffcc44, 14, 9);
   const d = Math.hypot(S.pos.x - x, S.pos.y - y, S.pos.z - z); S.shake = Math.max(S.shake || 0, Math.max(0, 1 - d / (r * 2.2)) * 0.35);
 }
+// махане на всички частици/гилзи/трасери (нов рунд, смърт, смяна на камерата) – нищо не остава „висящо“ във въздуха
+function clearFx() { for (const f of fx) { scene.remove(f.mesh); if (f.type === 'tracer' || f.type === 'boom') { f.mesh.geometry.dispose(); f.mesh.material.dispose(); } } fx.length = 0; }
 function updateFx(dt) {
+  if (!(dt > 0) || dt > 1) dt = Math.min(0.05, Math.max(0, dt || 0));      // NaN/скок във времето не бива да „замразява“ живота на частиците
   for (let i = fx.length - 1; i >= 0; i--) {
     const f = fx[i]; f.life -= dt;
+    if (!Number.isFinite(f.mesh.position.x + f.mesh.position.y + f.mesh.position.z)) f.life = 0;
     if (f.type === 'part') { f.v[1] -= 16 * dt; f.mesh.position.x += f.v[0] * dt; f.mesh.position.y += f.v[1] * dt; f.mesh.position.z += f.v[2] * dt; }
     else if (f.type === 'casing') {
       const p = f.mesh.position; f.v[1] -= 14 * dt;
@@ -583,7 +600,7 @@ socket.on('round', async r => {
   await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
-  S.crouching = false; S.crouchAmt = 0; clearNadeFx();
+  S.crouching = false; S.crouchAmt = 0; clearNadeFx(); clearFx();
   audio.roundStart();
   if (r.swapped) banner('СМЯНА НА СТРАНИТЕ', '#ffd34d', 3000);
   else toast(`Рунд ${r.n} — натисни B за магазина`, 3000);
