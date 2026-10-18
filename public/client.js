@@ -390,7 +390,7 @@ function updateModels(dt) {
     const sw = p.al ? Math.sin(m.phase) * Math.min(1, sp / 4) * 0.8 : 0;
     { const cr = Math.max(m.crAmt, m.lieC || 0), kl = Math.min(0, sw) * 1.5 - Math.abs(sw) * 0.12, kr = Math.min(0, -sw) * 1.5 - Math.abs(sw) * 0.12;
       m.legL.rotation.x = sw * (1 - cr) + cr; m.legR.rotation.x = -sw * (1 - cr) + cr;
-      m.legL.userData.shin.rotation.x = kl * (1 - cr) - 2.0 * cr; m.legR.userData.shin.rotation.x = kr * (1 - cr) - 2.0 * cr; m.rig.position.y = -0.39 * cr; }
+      m.legL.userData.shin.rotation.x = kl * (1 - cr) - 2.0 * cr; m.legR.userData.shin.rotation.x = kr * (1 - cr) - 2.0 * cr; m.rig.position.y = -0.62 * cr; }
     // звуци на другите играчи: стъпки (не се чуват при Shift/клякане), скок, приземяване
     if (p.al && dist < 2) {
       const pos = [pose.x, pose.y + 0.2, pose.z];
@@ -849,7 +849,7 @@ $('#pLeave').onclick = () => askConfirm('Сигурен ли си?', 'Ще на�
 
 document.addEventListener('mousemove', e => {
   if (!S.locked) return;
-  const k = S.scoped ? 0.35 : 1, sens = 0.0022 * settings.sens * k;
+  const k = S.scoped ? (WEAPONS[S.me.w]?.zoom ? 0.62 : 0.35) : 1, sens = 0.0022 * settings.sens * k;
   S.mdx += e.movementX; S.mdy += e.movementY;
   S.yaw -= e.movementX * sens;
   S.pitch = clamp(S.pitch - e.movementY * sens * (settings.invert ? -1 : 1), -1.5, 1.5);

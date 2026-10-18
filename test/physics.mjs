@@ -97,5 +97,18 @@ console.log('— Рампи (wedge)');
   ok(B.vel.x < -0.5, `плъзга се надолу по наклона (vx=${B.vel.x.toFixed(2)})`);
 }
 
+console.log('— Клякане: височина един блок');
+{
+  // тунел с височина 1 блок (таван на y=2): минава се само клекнал; прав играч не влиза
+  const W = world(40, 8, 20, [['concrete', 0, 0, 0, 39, 0, 19], ['concrete', 10, 2, 0, 20, 2, 19]]);
+  const C = body(5, 1, 10); C.yaw = -Math.PI / 2; run(C, W, 0.5, { ...IDLE, crouch: true });
+  run(C, W, 8, { ...IDLE, fz: -1, crouch: true });
+  ok(C.pos.x > 12, 'клекнал минава през отвор от 1 блок (x=' + C.pos.x.toFixed(1) + ')');
+  const P = body(5, 1, 10); P.yaw = -Math.PI / 2; run(P, W, 0.4);
+  run(P, W, 3, { ...IDLE, fz: -1 });
+  ok(P.pos.x < 10.1, 'прав не може да влезе (x=' + P.pos.x.toFixed(1) + ')');
+  ok(MOVE.CROUCH_H > 0.98 && MOVE.CROUCH_H < 1.0 && MOVE.EYE_CROUCH < MOVE.CROUCH_H, 'хитбоксът при клякане е 1 блок (0.99), очите са под тавана');
+}
+
 console.log(fails ? `\nПровалени: ${fails}` : '\nФизиката е в ред.');
 process.exit(fails ? 1 : 0);

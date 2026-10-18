@@ -14,8 +14,8 @@ export const MOVE = {
   CROUCH_MUL: 0.34,       // Ctrl / C
   BHOP_CAP: 1.1,          // при скок скоростта се реже до 110% от максималната (без bunnyhopping)
   AIR_MAX: 1.7,           // абсолютен таван на хоризонталната скорост (× скоростта на ножа)
-  STAND_H: 1.8, CROUCH_H: 1.35,
-  EYE_STAND: 1.6, EYE_CROUCH: 1.15, CROUCH_TIME: 0.2,
+  STAND_H: 1.8, CROUCH_H: 0.99,                // клекнал ≈ 1 блок (0.99, за да мине през отвор от точно 1 блок)
+  EYE_STAND: 1.6, EYE_CROUCH: 0.85, CROUCH_TIME: 0.2,
   HW: 0.3,
   WATER_MUL: 0.62,
   STEP: 1 / 64,           // фиксирана стъпка на симулацията (tickrate 64)
