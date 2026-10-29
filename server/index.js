@@ -8,6 +8,7 @@ import { Server } from 'socket.io';
 import { Bot, DIFFS, BOT_NAMES } from './bots.js';
 import { Bsp, boxBlockedBsp, toCs, fromCs, U as BU } from '../shared/bsp.js';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
+import '../shared/brushes.js';                    // карти от кутии (type: 'brush')
 import { canUse, NADE, NADE_W, NADE_ORDER, nadePrice, CHARACTERS, cleanChars, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

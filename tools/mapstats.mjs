@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { World, SOLID, BLOCK, traverse } from '../shared/world.js';
+import '../shared/brushes.js';
 import { Nav } from '../server/bots.js';
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../server/maps');

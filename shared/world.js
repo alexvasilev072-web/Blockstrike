@@ -68,6 +68,10 @@ export function wedgeSlope(kind, u) { return kind === 'w45' ? 1 : kind === 'lo' 
 // Профилът (u,h) за мешовете: полигон от точки
 export const WEDGE_PROFILE = { w45: [[0, 0], [1, 0], [1, 1]], lo: [[0, 0], [1, 0], [1, 1], [0.5, 1]], hi: [[0.5, 0], [1, 0], [1, 1]] };
 
+// видове карти (напр. 'brush'): регистрират се от своя модул (shared/brushes.js), за да няма цикъл между модулите
+const WORLD_TYPES = {};
+export const registerWorldType = (type, cls) => { WORLD_TYPES[type] = cls; };
+
 export class World {
   constructor(sx, sy, sz, data) {
     this.sx = sx; this.sy = sy; this.sz = sz;
@@ -88,6 +92,7 @@ export class World {
 
   // ops: ["блок", x1,y1,z1, x2,y2,z2] - запълване на кутия (включително), прилагат се по ред.
   static fromMap(map) {
+    if (map.type && map.type !== 'voxel') { const C = WORLD_TYPES[map.type]; if (!C) throw new Error('Непознат вид карта: ' + map.type + ' (импортирай shared/brushes.js)'); return C.fromMap(map); }
     const [sx, sy, sz] = map.size;
     const w = new World(sx, sy, sz);
     for (const op of map.ops) {
@@ -111,6 +116,7 @@ export class World {
 
 // Дали кутията на играча (долен център x,y,z) пресича твърд КУБ. Клиновете се обработват отделно (wedgePush).
 export function boxCollides(world, x, y, z, hw = 0.3, h = 1.8, eps = 0) {
+  if (world.bw) return world.bw.collides(x, y, z, hw, h, eps);
   const x0 = Math.floor(x - hw + eps), x1 = Math.floor(x + hw - eps);
   const y0 = Math.floor(y + eps), y1 = Math.floor(y + h - eps);
   const z0 = Math.floor(z - hw + eps), z1 = Math.floor(z + hw - eps);
@@ -125,6 +131,7 @@ export function boxCollides(world, x, y, z, hw = 0.3, h = 1.8, eps = 0) {
 // За всяка клетка избираме най-малкото проникване между: наклонената повърхност (предпочита се) и хоризонтален изход
 // (така задната и страничните стени на клина блокират, вместо да „качват“ играча).
 export function wedgePush(world, x, y, z, hw, h, eps = 0) {
+  if (world.bw) return null;
   const x0 = Math.floor(x - hw + eps), x1 = Math.floor(x + hw - eps);
   const y0 = Math.floor(y + eps), y1 = Math.floor(y + h - eps);
   const z0 = Math.floor(z - hw + eps), z1 = Math.floor(z + hw - eps);
@@ -177,6 +184,10 @@ export function waterDepth(world, x, y, z, h = 1.8) {
 
 // Amanatides-Woo обхождане на лъч през клетките. cb(x,y,z,t) -> true за стоп.
 export function traverse(world, ox, oy, oz, dx, dy, dz, maxT, cb) {
+  if (world.bw) {                               // карта от кутии: точният лъч; на първото попадение извикваме cb върху клетката точно зад повърхността
+    const t = world.bw.ray(ox, oy, oz, dx, dy, dz, maxT), tt = t === null ? maxT : t, e = t === null ? 0 : 1e-3;
+    cb(Math.floor(ox + dx * (tt + e)), Math.floor(oy + dy * (tt + e)), Math.floor(oz + dz * (tt + e)), tt); return;
+  }
   let x = Math.floor(ox), y = Math.floor(oy), z = Math.floor(oz);
   const sx = Math.sign(dx), sy = Math.sign(dy), sz = Math.sign(dz);
   const tdx = dx !== 0 ? Math.abs(1 / dx) : Infinity;

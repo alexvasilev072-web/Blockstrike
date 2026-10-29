@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { World, BLOCK, SOLID, boxCollides } from '../shared/world.js';
+import '../shared/brushes.js';
 import { Bsp, boxBlockedBsp } from '../shared/bsp.js';
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../server/maps');

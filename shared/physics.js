@@ -116,16 +116,23 @@ export function stepBody(B, inp, ctx, dt) {
   const wasGround = B.onGround, vyBefore = v.y;
   const nsub = Math.max(1, Math.ceil(Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)) * dt / 0.25)), sd = dt / nsub;
   let grounded = false, gN = null, platId = null;
+  // стъпала и бордюри (само за карти от кутии): ако пред краката има препятствие до 0.55 м, играчът се качва, вместо да спре
+  const tryStep = () => {
+    if (!W.bw || !(wasGround || grounded) || v.y > 0.5) return false;
+    const top = W.bw.stepTop(p.x, p.y, p.z, HW, H, MOVE.STEP_H); if (top === null) return false;
+    if (boxCollides(W, p.x, top + 1e-3, p.z, HW, H)) return false;
+    p.y = top + 1e-3; grounded = true; gN = { nx: 0, ny: 1, nz: 0 }; if (v.y < 0) v.y = 0; return true;
+  };
   for (let i = 0; i < nsub; i++) {
     let d = v.x * sd; p.x += d;
-    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { p.x = d > 0 ? Math.floor(p.x + HW) - HW - 1e-4 : Math.floor(p.x - HW) + 1 + HW + 1e-4; v.x = 0; }
+    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { if (!tryStep()) { p.x = W.bw ? W.bw.fix('x', p.x, p.y, p.z, HW, H, d) : d > 0 ? Math.floor(p.x + HW) - HW - 1e-4 : Math.floor(p.x - HW) + 1 + HW + 1e-4; v.x = 0; } }
     else { const q = platHit(plats, p.x, p.y, p.z, H, HW); if (q) { p.x = d > 0 ? q.min[0] - HW - 1e-4 : q.max[0] + HW + 1e-4; v.x = 0; } }
     d = v.z * sd; p.z += d;
-    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { p.z = d > 0 ? Math.floor(p.z + HW) - HW - 1e-4 : Math.floor(p.z - HW) + 1 + HW + 1e-4; v.z = 0; }
+    if (boxCollides(W, p.x, p.y, p.z, HW, H)) { if (!tryStep()) { p.z = W.bw ? W.bw.fix('z', p.x, p.y, p.z, HW, H, d) : d > 0 ? Math.floor(p.z + HW) - HW - 1e-4 : Math.floor(p.z - HW) + 1 + HW + 1e-4; v.z = 0; } }
     else { const q = platHit(plats, p.x, p.y, p.z, H, HW); if (q) { p.z = d > 0 ? q.min[2] - HW - 1e-4 : q.max[2] + HW + 1e-4; v.z = 0; } }
     d = v.y * sd; p.y += d;
     if (boxCollides(W, p.x, p.y, p.z, HW, H)) {
-      if (d > 0) p.y = Math.floor(p.y + H) - H - 1e-4; else { p.y = Math.floor(p.y) + 1; grounded = true; gN = { nx: 0, ny: 1, nz: 0 }; }
+      if (d > 0) p.y = W.bw ? W.bw.fix('y', p.x, p.y, p.z, HW, H, d) : Math.floor(p.y + H) - H - 1e-4; else { p.y = W.bw ? W.bw.fix('y', p.x, p.y, p.z, HW, H, d) : Math.floor(p.y) + 1; grounded = true; gN = { nx: 0, ny: 1, nz: 0 }; }
       v.y = 0;
     } else {
       const q = platHit(plats, p.x, p.y, p.z, H, HW);

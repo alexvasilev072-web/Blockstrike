@@ -17,6 +17,8 @@ import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
 import { weaponIcon } from './wicons.js';
+import '/shared/brushes.js';                                          // карти от кутии (type: 'brush')
+import { buildBrushGroup, buildNightSky } from './brushmesh.js';
 import { initTouch, isTouchDevice } from './touch.js';
 import { Ragdoll, rememberRest, resetRagdollPose, applyRagdoll } from './ragdoll.js';
 import { keyLabel } from './settings.js';
@@ -168,7 +170,16 @@ addEventListener('resize', resize); resize();
 const atlas = buildAtlas(THREE);
 atlas.texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 const worldR = new WorldRenderer(scene, atlas);
-function buildWorldMesh(world) { worldR.load(world, { ...(S.mapJson?.env || {}), realistic: settings.realistic, shadows: settings.realistic && settings.quality === 'high' }); buildBspMesh(S.mapJson); applyRealism(); }
+let brushGroup = null;
+function buildBrushMesh(json) {
+  if (brushGroup && json?.type === 'brush' && brushGroup.userData.id === json.id) return;       // същата карта (нов рунд): не се строи наново
+  if (brushGroup) { scene.remove(brushGroup); brushGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); brushGroup = null; }
+  if (json?.type === 'brush') { brushGroup = buildBrushGroup(THREE, json); brushGroup.userData.id = json.id; scene.add(brushGroup); }
+}
+function buildWorldMesh(world) {
+  buildBrushMesh(S.mapJson);
+  if (world.bw) { worldR.clear(); buildBspMesh(S.mapJson); applyRealism(); return; }        // карта от кутии: без воксел мрежата
+  worldR.load(world, { ...(S.mapJson?.env || {}), realistic: settings.realistic, shadows: settings.realistic && settings.quality === 'high' }); buildBspMesh(S.mapJson); applyRealism(); }
 
 // ----- GoldSrc (CS 1.6) карта: геометрията е готова триъгълна мрежа с вградено осветление -----
 let bspGroup = null;
@@ -200,6 +211,7 @@ function cloudTexture() {
 }
 function buildSky(env) {
   if (skyGroup) { scene.remove(skyGroup); skyGroup.traverse(o => { o.geometry?.dispose?.(); o.material?.dispose?.(); }); skyGroup = null; skyClouds = []; }
+  if (env?.night) { skyGroup = buildNightSky(THREE, env); scene.add(skyGroup); return; }
   if (!settings.realistic || !env || !(env.sun > 0.2)) return;
   skyGroup = new THREE.Group();
   const top = new THREE.Color(env.sky || '#8fd0ff'), hor = new THREE.Color(env.fogColor || env.sky || '#b9dcff');
