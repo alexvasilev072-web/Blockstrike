@@ -42,9 +42,11 @@ for (const file of MAP_FILES) {
 // ---------- HTTP ----------
 const app = express();
 app.use('/vendor/three', express.static(path.join(ROOT, 'node_modules/three/build')));
-app.use('/shared', express.static(path.join(ROOT, 'shared')));
-app.use('/maps', express.static(path.join(ROOT, 'server/maps')));
-app.use(express.static(path.join(ROOT, 'public')));
+// файловете на играта винаги се проверяват наново (ETag): така след обновяване браузърът не показва стара версия (напр. стари бутони)
+const fresh = { setHeaders: res => res.setHeader('Cache-Control', 'no-cache') };
+app.use('/shared', express.static(path.join(ROOT, 'shared'), fresh));
+app.use('/maps', express.static(path.join(ROOT, 'server/maps'), fresh));
+app.use(express.static(path.join(ROOT, 'public'), fresh));
 app.get('/healthz', (_, res) => res.send('ok'));
 // звукови файлове по избор (public/sounds): ако има файл с подходящо име, клиентът го ползва вместо синтезирания звук
 app.get('/api/sounds', (_, res) => { try { res.json(fs.readdirSync(path.join(ROOT, 'public/sounds')).filter(f => /\.(wav|ogg|mp3)$/i.test(f))); } catch { res.json([]); } });
@@ -208,6 +210,21 @@ class Room {
   }
 
   // ----- мач / рунд -----
+  // ----- spawn точки за режими без отбори (Deathmatch, Gun Game …): ползват се и двата списъка на картата -----
+  // Всички точки на картата като {x,y,z} (центърът на блока; в BSP картите – точните координати).
+  allSpawns() {
+    const j = this.map.json, o = this.map.bsp ? 0 : 0.5, seen = new Set(), out = [];
+    for (const side of ['att', 'def']) for (const [x, z, y = 1] of j.spawns[side] || []) { const k = x + ',' + z + ',' + y; if (seen.has(k)) continue; seen.add(k); out.push({ x: x + o, y, z: z + o }); }
+    return out;
+  }
+  // Избира точка, най-далеч от дадените позиции (живите противници; [{x,z}…]); при равенство и без позиции – случайно. Поглед към центъра на картата.
+  pickSpawn(from = [], rnd = Math.random) {
+    const list = this.allSpawns(); if (!list.length) return null;
+    const score = sp => from.length ? Math.min(...from.map(q => Math.hypot(q.x - sp.x, q.z - sp.z))) : 0;
+    let best = [], bs = -1; for (const sp of list) { const v = score(sp); if (v > bs + 1e-6) { bs = v; best = [sp]; } else if (Math.abs(v - bs) <= 1e-6) best.push(sp); }
+    const sp = best[Math.floor(rnd() * best.length)], [sx, , sz] = this.map.json.size, dx = sx / 2 - sp.x, dz = sz / 2 - sp.z;
+    return { ...sp, yw: Math.atan2(-dx, -dz) };
+  }
   get cfg() { return modeOf(this.mode); }            // флаговете на текущия режим (shared/modes.js)
 
   startMatch() {
