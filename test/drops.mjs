@@ -6,7 +6,7 @@ const { Room } = __test;
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fails++; };
 const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 30); i++) { fake += 33; room.tick(fake); } };
 
-const room = new Room('DROP'); room.mapId = 'dunes'; room.emit = () => { };
+const room = new Room('DROP'); room.mapId = 'canyon'; room.emit = () => { };
 const got = [], sock = { id: 'H1', emit(n, d) { if (n === 'got') got.push(d); }, join() { } };
 const me = room.addPlayer(sock, 'Хума'); me.team = 'att';
 const foe = room.addBot('def', 'easy'); room.addBot('att', 'easy'); room.addBot('def', 'easy');

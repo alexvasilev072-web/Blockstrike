@@ -8,7 +8,7 @@ process.env.PORT = '0';
 const { __test } = await import('../server/index.js');
 globalThis.setInterval = realSI;
 const { Room, MAPS } = __test;
-const [, , mapArg = 'dunes', attD = 'hard', defD = 'hard', nm = '1', nPerArg = '5'] = process.argv;
+const [, , mapArg = 'canyon', attD = 'hard', defD = 'hard', nm = '1', nPerArg = '5'] = process.argv;
 const N = Number(nPerArg);
 
 const stats = {};

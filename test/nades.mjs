@@ -1,13 +1,13 @@
 // Тест на гранатите: купуване и лимити, димна граната (спира погледа), flashbang (заслепява по посока и разстояние), молотов (пожар и щети).
 let fake = 1_700_000_000_000; Date.now = () => fake;
-const realSI = globalThis.setInterval; globalThis.setInterval = () => 0; process.env.PORT = '0';
+const realSI = globalThis.setInterval; globalThis.setInterval = () => 0; process.env.PORT = '0'; process.env.BS_TEST = '1'; process.env.BS_TS = '1';   // тестовата арена (test/maps) със зададени координати
 const { __test } = await import('../server/index.js'); globalThis.setInterval = realSI;
 const { Room } = __test;
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fails++; };
 const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 30); i++) { fake += 33; room.tick(fake); } };
 
 function setup() {
-  const room = new Room('NADE' + Math.random().toString(36).slice(2, 5)); room.mapId = 'dunes';
+  const room = new Room('NADE' + Math.random().toString(36).slice(2, 5)); room.mapId = 'desert';
   const a = room.addBot('att', 'easy'), b = room.addBot('def', 'easy'), c = room.addBot('def', 'easy');
   for (const p of [a, b, c]) { p.bot = null; p.ready = true; }                // статични играчи без ИИ
   room.emit = () => { };

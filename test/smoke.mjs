@@ -192,10 +192,10 @@ ok(re.ok, 'същата връзка може да влезе отново бе�
 for (const c of [A4, B4, C4]) c.s.close();
 
 console.log('— Втора карта и нови карти');
-const C = client('Цеко', 'W1'); await C.join(); C.s.emit('setMap', 'terraces'); C.s.emit('start');
+const C = client('Цеко', 'W1'); await C.join(); C.s.emit('setMap', 'mountain'); C.s.emit('start');
 await until(() => C.spawn);
-ok(C.ev.gameStart?.[0].mapId === 'terraces', 'terraces карта се стартира');
-for (const id of ['quarter', 'dunes']) {
+ok(C.ev.gameStart?.[0].mapId === 'mountain', 'terraces карта се стартира');
+for (const id of ['quarry', 'canyon']) {
   const D = client('Д' + id, 'M' + id); await D.join(); D.s.emit('setMap', id); D.s.emit('start');
   await until(() => D.spawn);
   ok(D.ev.gameStart?.[0].mapId === id && D.spawn, `картата ${id} се стартира`);

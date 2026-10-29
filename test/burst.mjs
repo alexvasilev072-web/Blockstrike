@@ -5,7 +5,7 @@ const { __test } = await import('../server/index.js'); globalThis.setInterval = 
 const { Room } = __test;
 let fails = 0; const ok = (c, m) => { console.log((c ? '  ✓ ' : '  ✗ ') + m); if (!c) fails++; };
 const adv = (room, sec) => { for (let i = 0; i < Math.round(sec * 60); i++) { fake += 16; room.tick(fake); } };
-const room = new Room('BRST'); room.mapId = 'dunes'; const shots = []; room.emit = (n, d) => { if (n === 'shot') shots.push(d); };
+const room = new Room('BRST'); room.mapId = 'canyon'; const shots = []; room.emit = (n, d) => { if (n === 'shot') shots.push(d); };
 const sock = { id: 'H1', emit() { }, join() { } };
 const me = room.addPlayer(sock, 'Хума'); me.team = 'att'; room.addBot('def', 'easy');
 room.startMatch(); me.ready = true; adv(room, 14);

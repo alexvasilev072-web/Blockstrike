@@ -9,7 +9,7 @@
     "dev": "node --watch server/index.js",
     "test": "node test/physics.mjs && node test/bots.mjs && node test/nades.mjs && node test/chat.mjs && node test/takeover.mjs && node test/drops.mjs && node test/burst.mjs && node test/smoke.mjs",
     "validate": "node tools/validate-maps.mjs",
-    "maps": "node tools/genbig.mjs",
+    "maps": "node tools/genterrain.mjs",
     "importbsp": "node tools/importbsp.mjs",
     "bot": "node tools/bot.mjs"
   },

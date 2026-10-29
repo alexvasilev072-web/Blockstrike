@@ -109,7 +109,7 @@ class Room {
     this.code = code;
     this.players = new Map();
     this.hostId = null;
-    this.mapId = 'dunes';
+    this.mapId = 'canyon';
     this.mode = 'comp';          // comp | parkour | surf
     this.best = new Map();       // класация на стаята (parkour/surf): id -> {name,time}
     this.phase = 'lobby'; // lobby | freeze | live | end | matchover

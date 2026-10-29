@@ -92,7 +92,7 @@ function analyze(json) {
       }
     }
     console.log(`   точка ${name}: независими маршрути ≈ ${routes}`);
-    if (routes < 3) fail(`точка ${name}: по-малко от 3 пътя (${routes})`);
+    const need = json.minRoutes ?? 3; if (routes < need) fail(`точка ${name}: по-малко от ${need} пътя (${routes})`);
     // защитниците също стигат
     if (!bfs(sp(null, 'def')[0]).has(id(...target))) fail(`точка ${name} недостъпна за защитниците`);
   }

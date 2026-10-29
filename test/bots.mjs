@@ -28,7 +28,7 @@ function match(mapId, att, def, n) {
 }
 console.log('— Мач: Експерт срещу Лесен (3v3)');
 {
-  const a = match('dunes', 'expert', 'easy', 3), b = match('terraces', 'easy', 'expert', 3);
+  const a = match('canyon', 'expert', 'easy', 3), b = match('mountain', 'easy', 'expert', 3);
   const ek = (a.st.k.expert || 0) + (b.st.k.expert || 0), lk = (a.st.k.easy || 0) + (b.st.k.easy || 0);
   ok(a.done && b.done, 'мачовете приключват (без зацикляне)');
   ok(a.st.rounds + b.st.rounds >= 10, `играни рундове: ${a.st.rounds + b.st.rounds}`);
@@ -37,7 +37,7 @@ console.log('— Мач: Експерт срещу Лесен (3v3)');
 }
 console.log('— Мач: Труден срещу Среден (3v3)');
 {
-  const a = match('dunes', 'hard', 'medium', 3), b = match('terraces', 'medium', 'hard', 3);
+  const a = match('canyon', 'hard', 'medium', 3), b = match('mountain', 'medium', 'hard', 3);
   const hk = (a.st.k.hard || 0) + (b.st.k.hard || 0), mk = (a.st.k.medium || 0) + (b.st.k.medium || 0);
   ok(hk > mk * 1.5, `трудните печелят убийствата (${hk} срещу ${mk})`);
 }
