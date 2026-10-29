@@ -191,62 +191,6 @@ const re = await new Promise(res => carrier.s.emit('join', { name: 'Л-пак', 
 ok(re.ok, 'същата връзка може да влезе отново без презареждане');
 for (const c of [A4, B4, C4]) c.s.close();
 
-console.log('— Режими: parkour (таймер, checkpoint-и, лава, класация)');
-const P1 = client('Пешо', 'T5'), P2 = client('Мими', 'T5'); await P1.join(); await P2.join();
-await until(() => P2.ev.lobby?.at(-1)?.players.length === 2);
-P2.s.emit('setMode', 'parkour'); await sleep(120);
-ok(P1.ev.lobby.at(-1).mode === 'comp', 'само домакинът сменя режима');
-P1.s.emit('setMode', 'parkour'); await sleep(150);
-ok(P1.ev.lobby.at(-1).mode === 'parkour' && P1.ev.lobby.at(-1).mapId.startsWith('p_'), 'домакинът избира parkour; картата става parkour карта');
-P1.s.emit('setMap', 'desert'); await sleep(100);
-ok(P1.ev.lobby.at(-1).mapId.startsWith('p_'), 'comp карта не може да се избере в parkour режим');
-P1.s.emit('setMap', 'p_easy'); P1.s.emit('start');
-await until(() => P1.spawn && P2.spawn && P1.me?.hp);
-ok(P1.ev.gameStart?.[0].mode === 'parkour', 'gameStart съдържа режима');
-ok(P1.me.w === 'knife' && P1.me.inv.pr === null && P1.me.inv.se === null, 'в parkour има само нож');
-ok(P1.me.rn?.st === 0, 'таймерът чака (старт зона)');
-const sx = P1.spawn.x, sy = P1.spawn.y, sz = P1.spawn.z;
-P1.state(sx, sy, sz, { tk: 100 }); await sleep(100);
-ok(P1.me.rn.st === 0, 'в старта таймерът не върви');
-// checkpoint 1: платформа x29..33, z18..22, горна повърхност y=5
-P1.tp(31.5, 5, 20.5); await sleep(80); P1.state(31.5, 5, 20.5, { tk: 110 }); await sleep(150);
-ok(P1.ev.runstart?.length === 1 && P1.me.rn.st === 1, 'таймерът тръгва при излизане от старта');
-ok(P1.ev.cp?.length === 1 && P1.ev.cp[0].n === 1, 'докосването на checkpoint се записва (1/' + P1.ev.cp?.[0]?.total + ')');
-// падане в лава -> връщане на checkpoint
-const sp0 = P1.ev.spawn.length;
-P1.tp(20, 1, 5); await sleep(80); P1.state(20, 1, 5, { tk: 120 }); await sleep(150);
-ok(P1.ev.spawn.length > sp0 && Math.abs(P1.ev.spawn.at(-1).x - 31.5) < 0.1 && P1.ev.spawn.at(-1).why === 'lava', 'падане в лавата връща на последния checkpoint');
-// R = към checkpoint, Backspace = рестарт от началото
-P1.s.emit('restart'); await sleep(150);
-ok(Math.abs(P1.spawn.x - sx) < 0.1 && P1.me.rn.st === 0, 'Backspace рестартира от началото и нулира таймера');
-// финал + класация
-P1.tp(47.5, 5, 27.5); await sleep(80); P1.state(47.5, 5, 27.5, { tk: 130 }); await sleep(250);
-ok(P1.me.rn.st === 1, 'таймерът върви след старт');
-P1.tp(60, 5, 27); await sleep(80); P1.state(60, 5, 27, { tk: 131 }); await sleep(150);
-ok(P1.ev.finish?.length === 1 && P1.me.rn.st === 2 && P1.ev.finish[0].time > 0, 'финалният блок спира таймера');
-await sleep(100); ok(P2.snap?.lb?.length === 1 && P2.snap.lb[0][0] === 'Пешо', 'класацията на стаята е в снапшота');
-// сървърът не наказва падане/удари в parkour и не позволява оръжия
-const hp0 = P1.me.hp; P1.s.emit('buy', 'rifle'); P1.s.emit('shoot', { yw: 0, pt: 0 }); await sleep(120);
-ok(P1.me.hp === hp0 && P1.me.inv.pr === null, 'в parkour няма купуване и стрелба');
-for (const c of [P1, P2]) c.s.close();
-
-console.log('— Режими: surf (високи скорости се приемат)');
-const U1 = client('Сурф', 'T6'); await U1.join(); U1.s.emit('setMode', 'surf'); await sleep(100);
-U1.s.emit('setMap', 's_easy'); U1.s.emit('start'); await until(() => U1.spawn && U1.me?.hp);
-ok(U1.ev.gameStart?.[0].mode === 'surf', 'surf режим се стартира');
-// 60 м/с = ~0.94 м на тик: параметрите за surf не връщат играча
-U1.tp(5, 22, 30); await sleep(100); let z0 = 30, corr0 = U1.ev.correct?.length || 0;
-for (let i = 0; i < 20; i++) { z0 += 0.94; U1.state(5, 22, z0, { tk: 300 + i, g: false }); await sleep(8); }
-ok((U1.ev.correct?.length || 0) === corr0, 'скорост 60 м/с в surf се приема без корекции');
-ok(U1.snap.pl[0].sp > 40, 'скоростта в снапшота е точна (' + U1.snap.pl[0].sp + ' м/с)');
-U1.s.close();
-// същата скорост в parkour се отхвърля
-const V1 = client('Пеш', 'T7'); await V1.join(); V1.s.emit('setMode', 'parkour'); V1.s.emit('start'); await until(() => V1.spawn && V1.me?.hp);
-V1.tp(5, 4, 30); await sleep(100); let z1 = 30, c1 = V1.ev.correct?.length || 0;
-for (let i = 0; i < 6; i++) { z1 += 0.94; V1.state(5, 4, z1, { tk: 500 + i }); await sleep(8); }
-ok((V1.ev.correct?.length || 0) > c1, 'същата скорост в parkour се отхвърля');
-V1.s.close();
-
 console.log('— Втора карта и нови карти');
 const C = client('Цеко', 'W1'); await C.join(); C.s.emit('setMap', 'mountain'); C.s.emit('start');
 await until(() => C.spawn);

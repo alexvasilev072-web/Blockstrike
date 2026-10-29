@@ -36,16 +36,7 @@ for (const file of MAP_FILES) {
   }
   // режим на картата и checkpoint клъстери (свързани checkpoint блокове = един checkpoint)
   const mode = json.mode || 'comp';
-  const cpOf = new Map(); let cpCount = 0;
-  for (let y = 0; y < world.sy; y++) for (let z = 0; z < world.sz; z++) for (let x = 0; x < world.sx; x++) {
-    if (world.get(x, y, z) !== BLOCK.checkpoint || cpOf.has(x + ',' + y + ',' + z)) continue;
-    const id = ++cpCount, q = [[x, y, z]]; cpOf.set(x + ',' + y + ',' + z, id);
-    for (let h = 0; h < q.length; h++) for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
-      const nx = q[h][0] + dx, ny = q[h][1] + dy, nz = q[h][2] + dz, k = nx + ',' + ny + ',' + nz;
-      if (!cpOf.has(k) && world.get(nx, ny, nz) === BLOCK.checkpoint) { cpOf.set(k, id); q.push([nx, ny, nz]); }
-    }
-  }
-  MAPS[json.id] = { json, world, mode, cpOf, cpCount, bsp, max: Math.max(2, Math.min(CFG.MAX_PLAYERS, json.maxPlayers || CFG.MAX_PLAYERS)) };
+  MAPS[json.id] = { json, world, mode, bsp, max: Math.max(2, Math.min(CFG.MAX_PLAYERS, json.maxPlayers || CFG.MAX_PLAYERS)) };
 }
 
 // ---------- HTTP ----------
@@ -113,7 +104,6 @@ class Room {
     this.hostId = null;
     this.mapId = 'canyon';
     this.mode = 'comp';          // comp | parkour | surf
-    this.best = new Map();       // класация на стаята (parkour/surf): id -> {name,time}
     this.phase = 'lobby'; // lobby | freeze | live | end | matchover
     this.phaseEnd = 0;
     this.round = 0;
@@ -166,7 +156,7 @@ class Room {
   removePlayer(id) {
     const p = this.players.get(id);
     if (p && p.alive && p.inv.bomb) this.dropBomb(p);
-    this.players.delete(id); this.best.delete(id);
+    this.players.delete(id);
     if (this.hostId === id) this.hostId = [...this.players.values()].find(q => !q.bot)?.id || null;
     if (!this.hostId) { rooms.delete(this.code); return; }          // няма повече хора – ботовете не държат стаята
     this.emit('cosLeave', id); this.emit('vc:talk', { id, on: false });
@@ -218,90 +208,9 @@ class Room {
   }
 
   // ----- мач / рунд -----
-  // ----- parkour / surf: без отбори и оръжия; таймер, checkpoint-и, класация -----
   get cfg() { return modeOf(this.mode); }            // флаговете на текущия режим (shared/modes.js)
-  get run() { return this.cfg.race; }                // състезателен режим (parkour/surf): таймер, checkpoint-и
-  startRun() {
-    const now = Date.now();
-    this.round = 1; this.sc = { att: 0, def: 0 }; this.phase = 'live'; this.phaseEnd = now + 1e11; this.roundStart = now; this.liveStart = now;
-    this.world = this.map.world.clone(); this.changes = []; this.bomb = null; this.drop = null; this.items = []; this.nades = []; this.best = new Map();
-    let i = 0;
-    for (const p of this.players.values()) { p.kills = 0; p.deaths = 0; this.spawnRun(p, i++); }
-    this.emit('gameStart', { mapId: this.mapId, mode: this.mode, changes: [] });
-    this.emit('round', { n: 1, sc: this.sc, mapId: this.mapId, mode: this.mode });
-    for (const p of this.players.values()) this.sendSpawn(p, false);
-    this.emitLobby();
-  }
-  // начална позиция по индекс: в блоковите карти центърът на блока, в BSP картите – точните координати
-  spawnPt(idx = 0) {
-    const sp = this.map.json.spawns.att, [sx, sz, sy = 1] = sp[idx % sp.length], o = this.map.bsp ? 0 : 0.5;
-    return { x: sx + o, y: sy, z: sz + o };
-  }
-  spawnRun(p, idx = 0) {
-    this.resetLoadout(p); p.inv.se = null; p.inv.pr = null; p.ammo = {}; p.weapon = 'knife'; p.team = 'att';
-    const sq = this.spawnPt(idx);
-    p.alive = true; p.hp = 100; p.x = sq.x; p.y = sq.y; p.z = sq.z; p.yw = this.map.json.startYaw ?? 0; p.pt = 0;
-    p.cr = false; p.g = true; p.spd = 0; p.lastTk = null; p.cp = null; p.cpSet = new Set(); p.run = { st: 0, t0: 0, tm: 0 };
-    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }]; p.lastGround = { x: p.x, y: p.y, z: p.z }; p.lastState = Date.now(); p.respawnAt = Date.now();
-  }
-  sendSpawn(p, quiet = true, why = null) { p.socket.emit('spawn', { x: p.x, y: p.y, z: p.z, yw: p.yw, quiet, why }); }
-  respawnRun(p, why) {
-    const to = p.cp || { ...this.spawnPt(0), yw: this.map.json.startYaw ?? 0 };
-    p.x = to.x; p.y = to.y; p.z = to.z; if (to.yw !== undefined) p.yw = to.yw; p.spd = 0; p.respawnAt = Date.now(); p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
-    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }];
-    p.deaths += why && why !== 'cp' ? 1 : 0;
-    this.sendSpawn(p, true, why);
-  }
-  restartRun(p) {
-    p.cp = null; p.cpSet = new Set(); p.run = { st: 0, t0: 0, tm: 0 };
-    const sq = this.spawnPt(0);
-    p.x = sq.x; p.y = sq.y; p.z = sq.z; p.yw = this.map.json.startYaw ?? 0; p.spd = 0; p.respawnAt = Date.now(); p.lastTk = null;
-    p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }]; p.lastGround = { x: p.x, y: p.y, z: p.z };
-    this.sendSpawn(p, true, 'restart');
-  }
-  // логика на състезанието при всяка приета позиция
-  runState(p, now) {
-    if (this.map.bsp) return this.runStateBsp(p, now);
-    const W = this.world, j = this.map.json, cx = Math.floor(p.x), cz = Math.floor(p.z), by = Math.floor(p.y - 0.06), fy = Math.floor(p.y + 0.1);
-    const below = W.get(cx, by, cz), feet = W.get(cx, fy, cz), head = W.get(cx, Math.floor(p.y + 1.0), cz);
-    if (below === BLOCK.lava || feet === BLOCK.lava || feet === BLOCK.water || head === BLOCK.water || p.y < (j.killY ?? 0.4)) {
-      return this.respawnRun(p, below === BLOCK.lava || feet === BLOCK.lava ? 'lava' : (feet === BLOCK.water || head === BLOCK.water) ? 'water' : 'void');
-    }
-    if (p.g && below === BLOCK.checkpoint) {
-      const id = this.map.cpOf.get(cx + ',' + by + ',' + cz) || 0;
-      if (!p.cp || Math.abs(p.cp.x - (cx + 0.5)) > 0.01 || Math.abs(p.cp.z - (cz + 0.5)) > 0.01 || p.cp.y !== by + 1) {
-        const first = !p.cpSet.has(id); p.cpSet.add(id);
-        p.cp = { x: cx + 0.5, y: by + 1, z: cz + 0.5, yw: p.yw };
-        p.socket.emit('cp', { n: p.cpSet.size, total: this.map.cpCount, first });
-      }
-    }
-    const [x1, z1, x2, z2] = j.start || [0, 0, 0, 0];
-    const inStart = p.x >= x1 && p.x <= x2 + 1 && p.z >= z1 && p.z <= z2 + 1 && p.y < (j.startY ?? 6);
-    if (inStart) { if (p.run.st !== 0) { p.run = { st: 0, t0: 0, tm: 0 }; p.cp = null; p.cpSet = new Set(); } }
-    else if (p.run.st === 0) { p.run = { st: 1, t0: now, tm: 0 }; p.socket.emit('runstart', { t0: now }); }
-    if (p.run.st === 1 && (below === BLOCK.finish || feet === BLOCK.finish)) this.finishRun(p, now);
-  }
-  // GoldSrc карта: свободна езда; trigger_teleport-ите се изпълняват от сървъра (позицията е авторитетна)
-  runStateBsp(p, now) {
-    const bsp = this.map.bsp, c = toCs(p, p.cr ? 18 : 36);
-    for (const t of bsp.teleports) {
-      if (c[0] + 16 < t.min[0] || c[0] - 16 > t.max[0] || c[1] + 16 < t.min[1] || c[1] - 16 > t.max[1] || c[2] + 36 < t.min[2] || c[2] - 36 > t.max[2]) continue;
-      const to = fromCs(t.to[0], t.to[1], t.to[2], 36);
-      p.x = to.x; p.y = to.y; p.z = to.z; p.yw = ((t.yaw || 0) - 90) * Math.PI / 180; p.spd = 0; p.respawnAt = Date.now(); p.lastTk = null; p.lastGround = { x: p.x, y: p.y, z: p.z };
-      p.hist = [{ t: Date.now(), x: p.x, y: p.y, z: p.z, cr: false }];
-      this.sendSpawn(p, true, null);
-      return;
-    }
-  }
-  finishRun(p, now) {
-    const time = now - p.run.t0; p.run = { st: 2, t0: p.run.t0, tm: time };
-    const prev = this.best.get(p.id), isBest = !prev || time < prev.time;
-    if (isBest) this.best.set(p.id, { name: p.name, time });
-    this.emit('finish', { id: p.id, name: p.name, time, best: isBest });
-  }
 
   startMatch() {
-    if (this.cfg.kind === 'race') return this.startRun();
     this.round = 0;
     this.sc = { att: 0, def: 0 };
     this.streak = { att: 0, def: 0 };
@@ -976,7 +885,7 @@ class Room {
     if (Number.isFinite(tk) && p.lastTk !== null) { const d = (tk - p.lastTk) / 64; if (d > 0 && d < 1) dtk = d; }
     if (Number.isFinite(tk)) p.lastTk = tk;
     const dEff = dtk !== null ? Math.max(dt, dtk) : dt;
-    // допустими скорости по режим: surf стига до 87 м/с, parkour има слуз (13 м/с нагоре) и water jump
+    // допустими скорости на режима (shared/modes.js, поле move)
     const LIM = this.map.bsp ? { h: 110, v: 110 } : this.cfg.move;
     if (now - (p.respawnAt || 0) < 120) return;     // позиции, изпратени преди респауна
     const bad = hd > LIM.h * dEff + 0.4 || y - p.y > LIM.v * dEff + 0.5 || (!this.map.bsp && y < -1) || (this.map.bsp ? boxBlockedBsp(this.map.bsp, x, y, z, cr) : boxBlocked(this.world, x, y, z, CFG.HW, H, 0.03));
@@ -1000,7 +909,6 @@ class Room {
     p.yw = num(s.yw); p.pt = clamp(num(s.pt), -1.56, 1.56);
     p.hist.push({ t: now, x, y, z, cr });
     while (p.hist.length && now - p.hist[0].t > 1200) p.hist.shift();
-    if (this.cfg.race) this.runState(p, now);
   }
 
   // ----- тик -----
@@ -1008,7 +916,6 @@ class Room {
     const dt = clamp((now - this.lastTick) / 1000, 0.001, 0.1);
     this.lastTick = now;
     if (this.phase === 'lobby') return;
-    if (!this.cfg.rounds) { this.broadcast(now); return; }       // режим без рундове (състезание): само снапшоти
 
     for (const p of this.players.values()) {
       if (p.reloadEnd && now >= p.reloadEnd) {
@@ -1048,7 +955,7 @@ class Room {
     for (const p of this.players.values())
       pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, po: p.possessedBy ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, rs: p.run ? p.run.st : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
     const snap = {
-      mode: this.mode, lb: this.cfg.race ? [...this.best.entries()].map(([id, b]) => [b.name, b.time, id]).sort((a, b) => a[1] - b[1]).slice(0, 10) : undefined,
+      mode: this.mode,
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
       bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
@@ -1068,7 +975,6 @@ class Room {
         bt: this.phase === 'freeze' ? 99 : this.phase === 'live' ? Math.max(0, Math.ceil(CFG.BUY_TIME - (now - Math.max(this.liveStart || 0, p.readyAt || 0)) / 1000 / TS)) : 0,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
-        rn: this.cfg.race && p.run ? { st: p.run.st, t0: p.run.t0, tm: p.run.tm, cps: p.cpSet ? p.cpSet.size : 0, total: this.map.cpCount } : null,
       });
     }
   }
@@ -1101,7 +1007,6 @@ io.on('connection', socket => {
     if (r.phase !== 'lobby') {
       socket.emit('gameStart', { mapId: r.mapId, mode: r.mode, changes: r.changes });
       socket.emit('round', { n: r.round, sc: r.sc, late: true, mapId: r.mapId, mode: r.mode });
-      if (r.cfg.race) { r.spawnRun(p, r.players.size); r.sendSpawn(p, false); }
     }
   });
 
@@ -1122,8 +1027,6 @@ io.on('connection', socket => {
   });
   socket.on('addBot', d => { if (room && p && room.hostId === p.id) room.addBot(d?.team === 'def' ? 'def' : 'att', DIFFS[d?.diff] ? d.diff : 'medium'); });
   socket.on('removeBot', id => { if (room && p && room.hostId === p.id && typeof id === 'string') room.removeBot(id); });
-  socket.on('cp', () => { if (room && p && room.cfg.race && p.alive) room.respawnRun(p, 'cp'); });
-  socket.on('restart', () => { if (room && p && room.cfg.race && p.alive) room.restartRun(p); });
   socket.on('tolobby', () => {
     if (!room || room.hostId !== p.id || room.phase === 'lobby') return;
     room.phase = 'lobby'; room.nades = []; room.bomb = null; room.drop = null; room.emitLobby();

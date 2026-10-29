@@ -29,11 +29,9 @@ BlockStrike е браузърен multiplayer FPS (Three.js на клиента,
 
 ### Как работят режимите сега
 
-- **Режимите са таблица** `GAME_MODES` в `shared/modes.js` (флагове: `kind`, `rounds`, `teams`, `bots`, `shop`, `combat`, `race`, `fallDamage`, `mapMax`, `move`; `modeOf(id)`). Сървърът чете `room.cfg` (= `modeOf(room.mode)`), клиентът `modeOf(S.mode)`. Не пиши `mode === 'comp'` – ползвай флаг.
-- `room.mode` е `'comp' | 'parkour' | 'surf'`. Картата носи своя режим (`MAPS[id].mode`); `setMode` (само домакин, само в лобито) сменя режима и избира карта от този режим. Ботове има САМО в `comp` (при смяна към друг режим се махат).
+- **Режимите са таблица** `GAME_MODES` в `shared/modes.js` (флагове: `kind`, `rounds`, `teams`, `bots`, `shop`, `combat`, `race`, `fallDamage`, `mapMax`, `move`; `modeOf(id)`; сега има само `comp`). Сървърът чете `room.cfg` (= `modeOf(room.mode)`), клиентът `modeOf(S.mode)`. Не пиши `mode === 'comp'` – ползвай флаг.
+- `room.mode` е само `'comp'` (Parkour и Surf са премахнати по решение на собственика, виж „Бележки“). Картата носи своя режим (`MAPS[id].mode`); `setMode` (само домакин, само в лобито) сменя режима и избира карта от този режим. Ботове има САМО в `comp` (при смяна към друг режим се махат).
 - `comp`: `startMatch()` → `nextRound()` → фази `freeze` → `live` → `end` → … → `matchover` (`CFG.FREEZE/LIVE/END`). Победа/край: `checkEnd()`, `endRound()`. Икономика, магазин и бомба важат само тук.
-- `parkour`/`surf`: `room.run` (= `cfg.race`) е истина. `startRun()` пуска състезание без отбори и оръжия: таймер, checkpoint-и (`cp`), падане (`respawnRun`), финал (`finishRun`), класация. Клиентът има отделен HUD (`updateRunHud`, `#runhud`).
-- **Внимание:** към момента няма карти за parkour и surf (изтрити са), така че тези режими не могат да се проверят в играта; `test/runs.mjs` и `test/bsp.mjs` не са в `npm test`.
 - Всички проверки на режим в сървъра и клиента вече минават през флагове от `GAME_MODES` (ботове, магазин, стрелба, отбори, падане, лимит на скоростта, HUD). Нов режим = нов запис в таблицата + методи на `Room`; още няма `kind` различен от `rounds`/`race`, затова `startMatch()` и `tick()` разклоняват по `cfg.kind`/`cfg.rounds`.
 
 ### Мрежова синхронизация
@@ -116,6 +114,6 @@ node tools/mapstats.mjs      # баланс на картите
 (тук се записва какво е направено и важни детайли за следващите задачи)
 
 - Към 29.10.2026 вече съществуват: радар (`public/radar.js`, горе вляво; показва съотборници и паднала/заложена бомба), наблюдение на живи съотборници след смърт (`S.specId`, `spec`/`takeover`, `me.sp`), ragdoll със събитие `died`, чат, гласов чат, оръжия на земята, магазин в 5 колони, сензорно управление. Задачите от Етап 4 за радар и spectator са за ПРОВЕРКА и ДОВЪРШВАНЕ на съществуващото, не за писане от нулата.
-- Parkour/Surf нямат карти в играта, но има тестови карти `test/maps/p_easy.json` и `s_easy.json` (зареждат се само при `BS_TEST=1`); `test/smoke.mjs` ги играе, така че режимите се проверяват при всеки `npm test`.
+- Parkour и Surf са ПРЕМАХНАТИ (по желание на собственика): режимите, класацията, checkpoint-ите, HUD „run“, движещите се платформи в клиента, `test/runs.mjs`, `test/bsp.mjs`, `tools/genruns.mjs`, тестовите карти p_easy/s_easy. В кода остава само общата физика (рампи, слуз, лед, платформи, surf въздушно ускорение в `shared/physics.js`, `shared/bsp.js`, `tools/importbsp.mjs`) – не се ползват от режимите, но са тествани в `test/physics.mjs`.
 - Етап 0 / режимите като таблица (готово): `shared/modes.js`, `test/modes.mjs`; сървърът ползва `room.cfg`, клиентът `modeOf(S.mode)`. Поведението на comp/parkour/surf е непроменено (всички тестове минават).
 - Етап 0 е добавен по решение на собственика: Deathmatch, Gun Game, Zombie и Prop Hunt не започват, докато режимите не са таблица.

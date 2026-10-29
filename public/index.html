@@ -44,13 +44,11 @@
       <div class="row"><button id="backBtn">← Назад</button><h2>Стая <b id="lobCode"></b></h2></div>
       <div class="row"><button class="skinsOpen">Скинове</button><button class="heroOpen">Герои</button><button class="settingsOpen">Настройки</button><button class="fsbtn">Цял екран</button><button id="copyLink">Копирай линк</button></div>
     </div>
-    <div class="row modes"><span class="sub" style="margin:0">Режим:</span><button class="modeBtn" data-mode="comp">Състезателен</button><button class="modeBtn" data-mode="parkour">Parkour</button><button class="modeBtn" data-mode="surf">Surf</button></div>
     <div id="botBar" class="row modes"><span class="sub" style="margin:0">Ботове – трудност:</span><select id="botDiff"><option value="easy">Лесен</option><option value="medium" selected>Среден</option><option value="hard">Труден</option><option value="expert">Експерт (като опитен CS играч)</option></select><button id="botFill">Запълни с ботове</button><button id="botClear">Махни ботовете</button></div>
     <div class="teams">
       <div class="team att"><h3>Нападатели</h3><ul id="listAtt"></ul><div class="row"><button data-team="att">Премини тук</button><button class="addBot" data-team="att">+ Бот</button></div></div>
       <div class="team def"><h3>Защитници</h3><ul id="listDef"></ul><div class="row"><button data-team="def">Премини тук</button><button class="addBot" data-team="def">+ Бот</button></div></div>
     </div>
-    <div id="runPlayers" style="display:none"></div>
     <div class="row">
       <label class="grow">Карта<select id="mapSel"></select></label>
       <button id="startBtn" class="primary">Старт</button>
@@ -172,12 +170,6 @@
   <div id="toast"></div>
   <div id="banner"></div>
   <div id="spec" class="hidden"></div>
-  <div id="runhud">
-    <div id="runTimer">0:00.000</div><div id="runState"></div><div id="runCp"></div><div id="runPb"></div>
-    <div id="speedo"></div>
-    <div id="lbBox"><h4>Класация</h4><div id="lbList"></div></div>
-    <div id="runKeys">R – към checkpoint • Backspace – рестарт • Tab – класация</div>
-  </div>
   <div id="fps"></div>
   <div id="buy" class="hidden">
     <button id="buyClose" type="button" title="Затвори">✕</button><h3>МАГАЗИН <small id="buyHelp">(кликни оръжие, за да го купиш • B – затвори)</small></h3>

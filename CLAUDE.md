@@ -4,7 +4,7 @@
 
 Браузърен multiplayer FPS. **Визията е voxel/пикселна (Minecraft), механиките следват Counter-Strike 2.**
 Когато нещо не е уточнено, питай „как е в CS2?“ и го направи така (скорости, икономика, щети, правила на рунда, поведение на бомбата).
-Режими: **Състезателен** (CS2), **Parkour** и **Surf** (таймер, checkpoint-и, класация; движението следва Source/CS).
+Режими: **Състезателен** (CS2). Режимите са таблица в `shared/modes.js` (виж PLAN.md); Parkour и Surf са премахнати.
 
 ## Правила, които не се нарушават
 
@@ -20,10 +20,10 @@ shared/bsp.js          GoldSrc (CS 1.6) карти: колизия по clipnode
 ## Структура
 
 ```
-server/index.js        Express + Socket.io: стаи, режими, рундове, икономика, оръжия, ножове, hitscan, гранати, бомба; parkour/surf (таймер, checkpoint, класация)
-server/maps/*.json     карти (ops = кутии от блокове; env; spawns; sites; за parkour/surf още mode, start, platforms, drive, killY)
+server/index.js        Express + Socket.io: стаи, режими (`room.cfg` от shared/modes.js), рундове, икономика, оръжия, ножове, hitscan, гранати, бомба, предмети на земята
+server/maps/*.json     карти: воксел (`ops` = кутии от блокове; env; spawns; sites; zones) или от обеми (`type: 'brush'`, shared/brushes.js)
 shared/world.js        блокове (BLOCK/DEFS, вкл. специални и рампи WEDGE), воксел свят, колизии (куб + wedgePush), лъчево обхождане
-shared/physics.js      stepBody(): движение на играча (CS2, вода/water jump, рампи/surf, слуз, лед, платформи); MODES (comp/parkour/surf)
+shared/physics.js      stepBody(): движение на играча (CS2, вода/water jump, рампи, слуз, лед, платформи, стъпала в карти от обеми)
 shared/weapons.js      оръжия, ножове, recoilAt, spreadFor, движение (MOVE), икономика (CFG), магазин (ITEMS)
 public/client.js       главен клиент: мрежа, вход, меню/пауза, HUD (вкл. run HUD), цикъл на рендиране
 public/textures.js     процедурни 64x64 текстури + атлас (с extrude рамка срещу процепи при mip)
@@ -38,10 +38,9 @@ public/radar.js        радар (съотборници, носител/пад
 public/characters.js    герои: реалистични процедурни хора (soldier(): глава, торс, жилетка, крака с колена, надписи ГДБОП/ПОЛИЦИЯ), ръце с лакти (makeArm); public/heroes.js – меню „Герои“ (по един герой за отбор)
 server/bots.js         ботове: A* навигация, възприятие (зрение/слух), цел и стрелба през room.shoot, тактика, гранати; нива easy/medium/hard/expert
 public/sounds/         по избор: звукови файлове (имената са в README.md там)
-tools/genmaps.mjs      генератор на comp картите mine/snow/harbor; tools/genruns.mjs – parkour и surf карти (с проверка на скоковете)
+tools/genterrain.mjs   генератор на воксел картите canyon/mountain/quarry; tools/genbrush.mjs – картата от обеми „yard“; tools/mapstats.mjs – баланс
 tools/validate-maps.mjs проверка на карти; tools/bot.mjs – тестов бот
 test/physics.mjs       тест на физиката (вода, рампи, слуз, лед, платформи) без браузър
-test/runs.mjs          бот минава всички скокове на parkour картите и държи рампите на surf картите
 test/nades.mjs        гранати: купуване/лимити, димна, flashbang, молотов; public/vmtest.html – контактен лист на анимации (dev)
 test/bots.mjs         ботове: пътища до обектите на всички карти + мачове на ускорен часовник (трудните бият лесните); test/botsim.mjs – сравнение на нивата
 tools/importsounds.mjs копира звуци от CS:GO пакет в public/sounds (само локално)
@@ -58,7 +57,7 @@ npm install
 npm start            # http://localhost:3000
 npm test             # physics + runs + smoke (сървър на порт 3999)
 npm run validate     # проверка на картите
-npm run maps         # прегенерира comp (mine/snow/harbor) и parkour/surf карти
+npm run maps         # прегенерира воксел картите
 npm run bot -- СТАЯ  # тестов бот
 ```
 
@@ -75,7 +74,7 @@ Build `npm install`, Start `npm start`, Health check `/healthz`. Сървъръ�
 - Ново оръжие: данни в `shared/weapons.js` + чертеж в `public/voxmodel.js` (`BP`) + базова поза и анимации във `public/viewmodel.js` + магазин (`ITEMS`) + звук в `public/audio.js`.
 - Нов звук с файл: сложи `име.wav|ogg|mp3` в `public/sounds/` (CC0/собствен запис) и добави името в README-то там; иначе остава процедурният.
 - Ботове: промени в `server/bots.js` проверявай с `node test/bots.mjs` и `node test/botsim.mjs`; ботът ползва само публични механики (физика, room.shoot, room.buy) и няма достъп до скрита информация за враговете. Нов герой: функция в `HEROES` (`public/characters.js`) + запис в `CHARACTERS` (`shared/weapons.js`, с `team`). Гранатите са 4 вида (`NADE`, `inv.g` на сървъра; `detonate()` по вид); димът спира само погледа (`room.smokeBlocks`, ботовете го ползват). Реалистичната графика (сенки, небе, текстури) се управлява от `settings.realistic`; сенките се смятат в `public/mesher.js` (`sunVis`).
-- Нова comp карта: JSON или функция в `tools/genmaps.mjs`, после `npm run validate`. Нова parkour/surf карта: функция в `tools/genruns.mjs` (assertHop проверява скоковете), после `node test/runs.mjs`.
+- Нова карта: воксел – функция в `tools/genterrain.mjs`; от обеми – `tools/genbrush.mjs`; после `npm run validate` и `node tools/mapstats.mjs`.
 - Промени по движението правиш само в `shared/physics.js` и добавяш проверка в `test/physics.mjs`.
 - След промяна: `npm test` и `npm run validate`; провери и в браузър.
 - Отладка в конзолата на браузъра: `__S` (състояние), `__socket`, `__vm` (viewmodel), `__renderer`, `__frame(t)` (ръчен кадър, когато панелът е скрит); `__S.debugCam = {x,y,z,yaw,pitch}` и `__S.noSend = true` за свободна камера без изпращане на позиция.

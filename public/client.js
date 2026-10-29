@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { World, BLOCK, DEFS, boxCollides, waterDepth } from '/shared/world.js';
 import { NADE_IDS, NADE_ORDER, NADE_W, nadePrice, WEAPONS, ITEMS, BUY_CATS, weaponsOfCat, canUse, CFG, MOVE, KNIFE, recoilAt, spreadFor, inBuyZone } from '/shared/weapons.js';
 import { settings, initSettings } from './settings.js';
-import { stepBody, platformsAt } from '/shared/physics.js';
+import { stepBody } from '/shared/physics.js';
 import { Bsp, decodeF32, decodeU8, decodeU32 } from '/shared/bsp.js';
 import { buildAtlas, BLOCK_TILES, setAtlasFilter } from './textures.js';
 import { WorldRenderer } from './mesher.js';
@@ -43,7 +43,7 @@ const S = {
   // стрелба
   firing: false, clicked: false, rclick: false, nextFire: 0, shotIdx: 0, lastShotT: 0, punch: [0, 0], punchT: [0, 0],
   buyOpen: false, boardOpen: false, specId: null, vmWeapon: null, kick: 0, lastBeep: 0, shake: 0, cosById: new Map(), speed: 0, mdx: 0, mdy: 0, vmReset: false, tick: 0, specCr: 0, specSpeed: 0, specG: true, specLast: null, vmSpec: null, boardPinned: false, everLocked: false,
-  mode: 'comp', wjT: 0, surfing: false, platform: null, groundN: null, jumped: false, platDefs: [], platsNow: [], simT: 0,
+  mode: 'comp', wjT: 0, surfing: false, platform: null, groundN: null, jumped: false, simT: 0,
 };
 window.__S = S;
 
@@ -77,12 +77,11 @@ $('#botClear').onclick = () => (S.lobby?.players || []).filter(p => p.bot).forEa
 $('#startBtn').onclick = () => { audio.init(); socket.emit('start'); };
 $('#mapSel').onchange = e => socket.emit('setMap', e.target.value);
 $('#backBtn').onclick = () => leaveRoom();
-document.querySelectorAll('.modeBtn').forEach(b => b.onclick = () => socket.emit('setMode', b.dataset.mode));
 $('#pLobby').onclick = () => socket.emit('tolobby');
 
 // Напускане на стаята (бутон „Назад“ в лобито и „Излез в главното меню“ в паузата). Без презареждане на страницата.
 function leaveRoom() {
-  socket.emit('leave'); voice.closeAll(); music.setScene('menu'); document.body.classList.remove('ingame'); setupPlatforms(null); S.mode = 'comp'; $('#hud').classList.remove('run');
+  socket.emit('leave'); voice.closeAll(); music.setScene('menu'); document.body.classList.remove('ingame'); S.mode = 'comp'; $('#hud').classList.remove('run');
   S.inGame = false; S.id = null; S.code = null; S.lobby = null; S.snap = null; S.phase = 'lobby'; S.locked = false; S.everLocked = false;
   S.me = { ...S.me, hp: 0, inv: { pr: null, se: 'pistol', n: 0, bomb: false } };
   if (document.pointerLockElement) document.exitPointerLock();
@@ -130,10 +129,7 @@ function onLobby(L) {
   const maps = L.maps.filter(m => m.mode === L.mode), sel = $('#mapSel'), key = maps.map(m => m.id).join(',');
   if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}${modeOf(L.mode).mapMax && m.max <= 4 ? ' (2 срещу 2)' : m.big ? ' (5 срещу 5)' : ''}</option>`).join(''); sel.dataset.key = key; }
   sel.value = L.mapId; sel.disabled = L.hostId !== S.id;
-  document.querySelectorAll('.modeBtn').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = L.hostId !== S.id; });
   $('.teams').style.display = modeOf(L.mode).teams ? '' : 'none';
-  $('#runPlayers').style.display = modeOf(L.mode).teams ? 'none' : '';
-  $('#runPlayers').innerHTML = L.players.map(p => `<span class="chip ${p.id === S.id ? 'me' : ''}">${esc(p.name)}${p.id === L.hostId ? ' ★' : ''}</span>`).join('');
   $('#mapDesc').textContent = (curMap?.desc || '') + (modeOf(L.mode).mapMax && curMap ? ` • Играчи: до ${curMap.max} (${curMap.max / 2} срещу ${curMap.max / 2})` : '');
   $('#startBtn').classList.toggle('over', over); $('#startBtn').title = over ? `Тази карта е за най-много ${maxP} играчи` : '';
   const host = L.hostId === S.id;
@@ -146,7 +142,7 @@ function onLobby(L) {
 
 function leaveGame() {   // мачът приключи: връщане в лобито на същата стая
   music.setScene('menu'); document.body.classList.remove('ingame'); clearGroundItems();
-  S.inGame = false; setupPlatforms(null); S.locked = false; S.everLocked = false;
+  S.inGame = false; S.locked = false; S.everLocked = false;
   if (document.pointerLockElement) document.exitPointerLock();
   $('#hud').classList.add('hidden'); $('#clickplay').classList.add('hidden'); $('#lobby').classList.remove('hidden');
   for (const m of models.values()) disposeModel(m);
@@ -501,7 +497,7 @@ socket.on('got', () => audio.pickup());
 // име на мястото, на което е играчът (или наблюдаваният): зоните са в картата (zones: [име, x1, z1, x2, z2])
 function updateZoneName() {
   const el = $('#zoneName'); if (!el) return; const zs = S.mapJson?.zones;
-  if (!zs || modeOf(S.mode).race) { el.style.display = 'none'; return; }
+  if (!zs) { el.style.display = 'none'; return; }
   let x = S.pos.x, z = S.pos.z;
   if (!alive() && S.specId) { const q = poseOf(S.specId, serverNow() - 100); if (q) { x = q.x; z = q.z; } }
   let name = '';
@@ -700,12 +696,12 @@ applyControls();
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
   music.setScene('game'); document.body.classList.add('ingame');
   S.sentReady = false; if (S.locked) { S.sentReady = true; socket.emit('ready'); }
-  S.mode = mode || 'comp'; $('#hud').classList.toggle('run', modeOf(S.mode).race);
+  S.mode = mode || 'comp';
   S.mapReady = (async () => {
     const json = await (await fetch(`/maps/${mapId}.json`)).json();
     S.mapJson = json; S.base = World.fromMap(json); S.world = S.base.clone();
     for (const c of changes) S.world.set(c[0], c[1], c[2], 0);
-    buildWorldMesh(S.world); setupMapDecor(json); setupPlatforms(json);
+    buildWorldMesh(S.world); setupMapDecor(json);
   })();
   await S.mapReady;
   S.inGame = true;
@@ -713,7 +709,7 @@ socket.on('gameStart', async ({ mapId, mode, changes }) => {
   $("#join").classList.add("hidden"); updatePause();
 });
 socket.on('round', async r => {
-  await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', modeOf(S.mode).race);
+  await S.mapReady; S.mode = r.mode || 'comp';
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
   S.crouching = false; S.crouchAmt = 0; clearNadeFx(); clearFx(); clearGroundItems();
@@ -725,7 +721,6 @@ socket.on('spawn', s => {
   if (s.takeover) { toast('Поемаш управлението на ' + s.takeover, 2500); S.vmSpec = null; S.vmReset = true; S.vmWeapon = null; }
   S.vmReset = !s.quiet; S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; S.yaw = s.yw; S.pitch = 0;
   S.onGround = false; S.wasGround = true; S.platform = null; S.groundN = null; S.wjT = 0; S.surfing = false; S.inWater = false;
-  if (s.why && WHY[s.why]) toast(WHY[s.why], 1600);
 });
 socket.on('correct', s => { S.pos = { x: s.x, y: s.y, z: s.z }; S.prev = { ...S.pos }; S.vel = { x: 0, y: 0, z: 0 }; });
 socket.on('snap', s => {
@@ -907,8 +902,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
   if (e.code === 'KeyB' && modeOf(S.mode).shop) { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
-  if (e.code === 'KeyR') socket.emit(modeOf(S.mode).race ? 'cp' : 'reload');        // в parkour/surf R = към последния checkpoint
-  if (e.code === 'Backspace') { e.preventDefault(); if (modeOf(S.mode).race) socket.emit('restart'); }
+  if (e.code === 'KeyR') socket.emit('reload');
   if (e.code === 'KeyE') S.eT = performance.now();
   if (e.code === 'KeyE') { if (!alive() && modeOf(S.mode).bots && S.specId && String(S.specId).startsWith('bot')) socket.emit('takeover', S.specId); else socket.emit('use', true); }
   if (e.code === 'KeyG' && alive() && !e.repeat) socket.emit('dropw');          // хвърля оръжието в ръката (или бомбата, ако в ръката няма оръжие)
@@ -1038,24 +1032,9 @@ const NO_PLATFORMS = [];
 function stepPhysics(inp, simT) {
   const wdef = WEAPONS[S.me.w];
   let vmax = wdef?.speed ?? 6.25; if (S.scoped && wdef?.scoped) vmax = wdef.scoped;
-  const plats = S.platDefs.length ? platformsAt(S.platDefs, simT, MOVE.STEP) : NO_PLATFORMS;
-  S.platsNow = plats;
+  const plats = NO_PLATFORMS;
   stepBody(S, inp, { world: S.world, bsp: S.bsp, vmax, mode: S.mode, platforms: plats, drive: S.mapJson?.drive, emit: physEmit }, MOVE.STEP);
   if (S.jumped) S.jumpAt = 0;
-}
-
-// движещи се платформи (parkour): мешове от блокове, позицията идва от същата функция като в симулацията
-const platMeshes = [];
-function setupPlatforms(json) {
-  for (const r of platMeshes) { r.clear(); scene.remove(r.group); }
-  platMeshes.length = 0; S.platDefs = json?.platforms || [];
-  for (const def of S.platDefs) {
-    const w = new World(def.size[0], def.size[1], def.size[2]); w.data.fill(BLOCK[def.block || 'metal']);
-    const r = new WorldRenderer(scene, atlas); r.load(w, { ambient: 0.6, sun: 1 }); platMeshes.push(r);
-  }
-}
-function updatePlatformMeshes() {
-  for (let i = 0; i < platMeshes.length; i++) { const q = S.platsNow[i]; if (q) platMeshes[i].group.position.set(q.min[0], q.min[1], q.min[2]); }
 }
 
 setInterval(() => {
@@ -1148,7 +1127,6 @@ function frame(nowMs) {
   S.acc += dt;
   let simT = serverNow() / 1000 - S.acc;
   while (S.acc >= MOVE.STEP) { S.prev.x = S.pos.x; S.prev.y = S.pos.y; S.prev.z = S.pos.z; simT += MOVE.STEP; stepPhysics(inp, simT); S.tick++; S.acc -= MOVE.STEP; }
-  updatePlatformMeshes();
   const al = S.acc / MOVE.STEP;
   tryFire(now);
   // откат: мерникът се връща към центъра, когато спреш да стреляш
@@ -1232,7 +1210,6 @@ function inSite() {
 let crossGap = 6;
 function updateHud() {
   const s = S.snap, m0 = S.me; if (!s) return;
-  if (modeOf(S.mode).race) return updateRunHud(s, m0);
   // мъртъв: HP/броня/патрони/оръжие са на наблюдавания (сървърът ги праща в me.sp)
   const sp0 = !alive() && m0.sp ? m0.sp : null, m = sp0 ? { ...m0, hp: sp0.hp, ar: sp0.ar, w: sp0.w, mag: sp0.mag, res: sp0.res, rl: sp0.rl, kit: sp0.kit, inv: { ...m0.inv, bomb: sp0.bomb, g: sp0.g || {}, n: 0 } } : m0;
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
@@ -1279,11 +1256,6 @@ function updateHud() {
 }
 function renderBoard(s) {
   const el = $('#board'); el.classList.remove('hidden');
-  if (modeOf(S.mode).race) {
-    const lb = s.lb || [];
-    el.innerHTML = `<h4>Класация – най-добро време</h4><table><tr><th>Играч</th><th>Време</th></tr>${lb.map((r, i) => `<tr class="${r[2] === S.id ? 'me' : ''}"><td>${i + 1}. ${esc(r[0])}</td><td>${fmtT(r[1])}</td></tr>`).join('') || '<tr><td colspan=2>Още няма завършили</td></tr>'}</table><h4>Играчи</h4>${s.pl.map(p => `<span class="chip ${p.i === S.id ? 'me' : ''}">${esc(p.n)}${p.rs === 1 ? ' ▶' : p.rs === 2 ? ' ✔' : ''}</span>`).join(' ')}`;
-    return;
-  }
   const tbl = t => `<h4 style="color:${TEAM_COL[t]}">${TEAM_NAME[t]} — ${s.sc[t]}</h4><table><tr><th>Играч</th><th>У</th><th>С</th></tr>` +
     s.pl.filter(p => p.tm === t).sort((a, b) => b.k - a.k).map(p => `<tr class="${p.i === S.id ? 'me' : ''} ${p.al ? '' : 'dead'}"><td>${esc(p.n)}${voice.isTalking(p.i) ? '<span class="spk">🔊</span>' : ''}${S.boardPinned && p.i !== S.id && !String(p.i).startsWith('bot') ? `<button class="vm" data-vm="${esc(p.i)}" title="Заглуши / пусни гласа">${voice.isMuted(p.i) ? '🔇' : '🔈'}</button>` : ''}</td><td>${p.k}</td><td>${p.d}</td></tr>`).join('') + '</table>';
   el.innerHTML = tbl('att') + tbl('def') + `<div style="color:#9aa6b8;font-size:13px">Пинг: ${Math.round(S.ping)} мс • Рунд ${s.rd}/${CFG.MAX_ROUNDS} • до ${CFG.WIN_ROUNDS} победи</div>`;
@@ -1313,36 +1285,6 @@ function menuFrame(dt, now) {
   }
   renderer.render(scene, camera);
 }
-
-// ================= parkour / surf: HUD и събития =================
-const fmtT = ms => { ms = Math.max(0, ms | 0); const m = Math.floor(ms / 60000), s = Math.floor(ms / 1000) % 60, c = ms % 1000; return `${m}:${String(s).padStart(2, '0')}.${String(c).padStart(3, '0')}`; };
-const pbKey = () => 'bs_pb_' + (S.mapJson?.id || '');
-function getPb() { try { const v = +localStorage.getItem(pbKey()); return v > 0 ? v : null; } catch { return null; } }
-function updateRunHud(s, m) {
-  const rn = m.rn; if (!rn) return;
-  const t = rn.st === 1 ? serverNow() - rn.t0 : rn.st === 2 ? rn.tm : 0;
-  $('#runTimer').textContent = fmtT(t);
-  $('#runTimer').className = rn.st === 2 ? 'done' : rn.st === 1 ? 'on' : '';
-  $('#runState').textContent = rn.st === 0 ? 'Излез от стартовата зона, за да тръгне таймерът' : rn.st === 2 ? 'Финал! Backspace – нов опит' : '';
-  $('#runCp').textContent = `Checkpoint ${rn.cps}/${rn.total}`;
-  const pb = getPb(); $('#runPb').textContent = pb ? `Лично най-добро: ${fmtT(pb)}` : 'Лично най-добро: –';
-  $('#speedo').textContent = Math.round(S.speed * 40) + ' ед/с';
-  const lb = s.lb || [];
-  $('#lbList').innerHTML = lb.length ? lb.map((r, i) => `<div class="${r[2] === S.id ? 'me' : ''}"><span>${i + 1}. ${esc(r[0])}</span><b>${fmtT(r[1])}</b></div>`).join('') : '<div class="dim">Още няма завършили</div>';
-  $('#spec').classList.add('hidden');
-  if (S.boardOpen || S.boardPinned) renderBoard(s);
-  $('#fps').textContent = fpsShown + ' FPS';
-}
-socket.on('cp', c => { toast(`Checkpoint ${c.n}/${c.total}`, 1600); audio.pickup(); });
-socket.on('runstart', () => { toast('Старт!', 900); audio.beep(null, 0.8, true); });
-socket.on('finish', f => {
-  if (f.id === S.id) {
-    audio.roundEnd(true); let msg = `Финал: ${fmtT(f.time)}`;
-    const pb = getPb(); if (!pb || f.time < pb) { try { localStorage.setItem(pbKey(), String(f.time)); } catch { } msg += ' — нов личен рекорд!'; }
-    banner(msg, '#7cf08a', 4500);
-  } else toast(`${f.name} завърши за ${fmtT(f.time)}`, 2500);
-});
-const WHY = { lava: 'Лава! Връщаш се на checkpoint', water: 'Вода! Връщаш се на checkpoint', void: 'Падна! Връщаш се на checkpoint', restart: 'Рестарт от началото' };
 
 let lastReal = settings.realistic, lastQual = settings.quality;
 initSettings(() => { applyControls(); const t = maxPR(); if (pixelRatio !== t) pixelRatio = t; resize(); if (lastReal !== settings.realistic || lastQual !== settings.quality) { lastReal = settings.realistic; lastQual = settings.quality; if (S.world && S.mapJson) buildWorldMesh(S.world); else applyRealism(); } });
