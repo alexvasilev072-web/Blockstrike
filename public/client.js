@@ -17,6 +17,7 @@ import { initHeroes, loadChar } from './heroes.js';
 import { initVoice } from './voice.js';
 import { music } from './music.js';
 import { weaponIcon } from './wicons.js';
+import { modeOf } from '/shared/modes.js';                            // режимите като таблица (флагове)
 import '/shared/brushes.js';                                          // карти от кутии (type: 'brush')
 import { buildBrushGroup, buildNightSky } from './brushmesh.js';
 import { initTouch, isTouchDevice } from './touch.js';
@@ -121,19 +122,19 @@ function onLobby(L) {
       .map(p => `<li class="${p.id === S.id ? 'me' : ''}">${p.bot ? '🤖 ' : ''}${esc(p.name)}${voice.isTalking(p.id) ? '<span class="spk">🔊</span>' : ''} ${p.id === L.hostId ? '<span class="host">★ домакин</span>' : ''}${p.bot ? `<span class="botdiff d-${p.diff}">${{ easy: 'лесен', medium: 'среден', hard: 'труден', expert: 'експерт' }[p.diff] || ''}</span>${L.hostId === S.id ? `<button class="rmBot" data-id="${p.id}" title="Махни бота">✕</button>` : ''}` : ''}</li>`).join('');
   }
   document.querySelectorAll('.rmBot').forEach(b => b.onclick = () => socket.emit('removeBot', b.dataset.id));
-  const curMap = L.maps.find(m => m.id === L.mapId), maxP = L.mode === 'comp' ? (curMap?.max || 10) : 10, over = L.mode === 'comp' && L.players.length > maxP;
-  const hostNow = L.hostId === S.id, canBots = hostNow && L.mode === 'comp' && L.players.length < maxP;
+  const curMap = L.maps.find(m => m.id === L.mapId), maxP = modeOf(L.mode).mapMax ? (curMap?.max || 10) : 10, over = modeOf(L.mode).mapMax && L.players.length > maxP;
+  const hostNow = L.hostId === S.id, canBots = hostNow && modeOf(L.mode).bots && L.players.length < maxP;
   document.querySelectorAll('.addBot').forEach(b => b.disabled = !canBots);
-  $('#botBar').style.display = L.mode === 'comp' && hostNow ? '' : 'none'; $('#botFill').disabled = !canBots; $('#botClear').disabled = !L.players.some(p => p.bot);
-  document.querySelectorAll('.addBot').forEach(b => b.style.display = L.mode === 'comp' && hostNow ? '' : 'none');
+  $('#botBar').style.display = modeOf(L.mode).bots && hostNow ? '' : 'none'; $('#botFill').disabled = !canBots; $('#botClear').disabled = !L.players.some(p => p.bot);
+  document.querySelectorAll('.addBot').forEach(b => b.style.display = modeOf(L.mode).bots && hostNow ? '' : 'none');
   const maps = L.maps.filter(m => m.mode === L.mode), sel = $('#mapSel'), key = maps.map(m => m.id).join(',');
-  if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}${L.mode === 'comp' && m.max <= 4 ? ' (2 срещу 2)' : m.big ? ' (5 срещу 5)' : ''}</option>`).join(''); sel.dataset.key = key; }
+  if (sel.dataset.key !== key) { sel.innerHTML = maps.map(m => `<option value="${m.id}">${esc(m.name)}${modeOf(L.mode).mapMax && m.max <= 4 ? ' (2 срещу 2)' : m.big ? ' (5 срещу 5)' : ''}</option>`).join(''); sel.dataset.key = key; }
   sel.value = L.mapId; sel.disabled = L.hostId !== S.id;
   document.querySelectorAll('.modeBtn').forEach(b => { b.classList.toggle('on', b.dataset.mode === L.mode); b.disabled = L.hostId !== S.id; });
-  $('.teams').style.display = L.mode === 'comp' ? '' : 'none';
-  $('#runPlayers').style.display = L.mode === 'comp' ? 'none' : '';
+  $('.teams').style.display = modeOf(L.mode).teams ? '' : 'none';
+  $('#runPlayers').style.display = modeOf(L.mode).teams ? 'none' : '';
   $('#runPlayers').innerHTML = L.players.map(p => `<span class="chip ${p.id === S.id ? 'me' : ''}">${esc(p.name)}${p.id === L.hostId ? ' ★' : ''}</span>`).join('');
-  $('#mapDesc').textContent = (curMap?.desc || '') + (L.mode === 'comp' && curMap ? ` • Играчи: до ${curMap.max} (${curMap.max / 2} срещу ${curMap.max / 2})` : '');
+  $('#mapDesc').textContent = (curMap?.desc || '') + (modeOf(L.mode).mapMax && curMap ? ` • Играчи: до ${curMap.max} (${curMap.max / 2} срещу ${curMap.max / 2})` : '');
   $('#startBtn').classList.toggle('over', over); $('#startBtn').title = over ? `Тази карта е за най-много ${maxP} играчи` : '';
   const host = L.hostId === S.id;
   $('#startBtn').style.display = host ? '' : 'none';
@@ -448,7 +449,7 @@ function wpRow(key, label) {
   r.el.className = 'wprow'; r.n.className = 'wpkey'; r.n.textContent = label; r.icons.className = 'wpicons'; r.el.append(r.icons, r.n); $('#wpanel').appendChild(r.el); wpRows.set(key, r); return r;
 }
 function renderWpanel(m) {
-  const P = $('#wpanel'); if (!P) return; const show = alive() && S.mode === 'comp' && S.inGame; P.style.display = show ? '' : 'none'; if (!show) return;
+  const P = $('#wpanel'); if (!P) return; const show = alive() && modeOf(S.mode).combat && S.inGame; P.style.display = show ? '' : 'none'; if (!show) return;
   const inv = m.inv || {}, g = inv.g || {}, cur = m.w, rows = [];
   rows.push(['pr', '1', inv.pr ? [[inv.pr, 0]] : []]);
   rows.push(['se', '2', inv.se ? [[inv.se, 0]] : []]);
@@ -500,7 +501,7 @@ socket.on('got', () => audio.pickup());
 // име на мястото, на което е играчът (или наблюдаваният): зоните са в картата (zones: [име, x1, z1, x2, z2])
 function updateZoneName() {
   const el = $('#zoneName'); if (!el) return; const zs = S.mapJson?.zones;
-  if (!zs || S.mode !== 'comp') { el.style.display = 'none'; return; }
+  if (!zs || modeOf(S.mode).race) { el.style.display = 'none'; return; }
   let x = S.pos.x, z = S.pos.z;
   if (!alive() && S.specId) { const q = poseOf(S.specId, serverNow() - 100); if (q) { x = q.x; z = q.z; } }
   let name = '';
@@ -510,7 +511,7 @@ function updateZoneName() {
 }
 function updatePickHint() {
   const el = $('#pickHint'); if (!el) return; let best = null;
-  if (alive() && S.mode === 'comp' && S.snap?.it?.length && S.me.inv) {
+  if (alive() && modeOf(S.mode).combat && S.snap?.it?.length && S.me.inv) {
     for (const it of S.snap.it) {
       const sl = WEAPONS[it[1]]?.slot; if (!sl || !S.me.inv[sl]) continue;
       const d = Math.hypot(S.pos.x - it[2], S.pos.z - it[4]);
@@ -699,7 +700,7 @@ applyControls();
 socket.on('gameStart', async ({ mapId, mode, changes }) => {
   music.setScene('game'); document.body.classList.add('ingame');
   S.sentReady = false; if (S.locked) { S.sentReady = true; socket.emit('ready'); }
-  S.mode = mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
+  S.mode = mode || 'comp'; $('#hud').classList.toggle('run', modeOf(S.mode).race);
   S.mapReady = (async () => {
     const json = await (await fetch(`/maps/${mapId}.json`)).json();
     S.mapJson = json; S.base = World.fromMap(json); S.world = S.base.clone();
@@ -712,7 +713,7 @@ socket.on('gameStart', async ({ mapId, mode, changes }) => {
   $("#join").classList.add("hidden"); updatePause();
 });
 socket.on('round', async r => {
-  await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', S.mode !== 'comp');
+  await S.mapReady; S.mode = r.mode || 'comp'; $('#hud').classList.toggle('run', modeOf(S.mode).race);
   S.world = S.base.clone(); buildWorldMesh(S.world); markRadarDirty();
   S.specId = null; S.scoped = false; S.shotIdx = 0; S.punch = [0, 0]; S.punchT = [0, 0]; S.pbuf.forEach(b => b.length = 0);
   S.crouching = false; S.crouchAmt = 0; clearNadeFx(); clearFx(); clearGroundItems();
@@ -904,12 +905,12 @@ addEventListener('keydown', e => {
   if (e.repeat) { if (e.code === 'Space' || e.code.startsWith('Control')) e.preventDefault(); return; }
   S.keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); S.jumpAt = performance.now(); }
-  if (e.code === 'KeyB' && S.mode === 'comp') { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
+  if (e.code === 'KeyB' && modeOf(S.mode).shop) { if (S.buyOpen) closeBuy(); else if (canBuy()) openBuy(); }
   if (e.code === 'Digit1') switchSlot('pr'); if (e.code === 'Digit2') switchSlot('se'); if (e.code === 'Digit3') switchSlot('kn'); if (e.code === 'Digit4') switchSlot('n');
-  if (e.code === 'KeyR') socket.emit(S.mode === 'comp' ? 'reload' : 'cp');        // в parkour/surf R = към последния checkpoint
-  if (e.code === 'Backspace') { e.preventDefault(); if (S.mode !== 'comp') socket.emit('restart'); }
+  if (e.code === 'KeyR') socket.emit(modeOf(S.mode).race ? 'cp' : 'reload');        // в parkour/surf R = към последния checkpoint
+  if (e.code === 'Backspace') { e.preventDefault(); if (modeOf(S.mode).race) socket.emit('restart'); }
   if (e.code === 'KeyE') S.eT = performance.now();
-  if (e.code === 'KeyE') { if (!alive() && S.mode === 'comp' && S.specId && String(S.specId).startsWith('bot')) socket.emit('takeover', S.specId); else socket.emit('use', true); }
+  if (e.code === 'KeyE') { if (!alive() && modeOf(S.mode).bots && S.specId && String(S.specId).startsWith('bot')) socket.emit('takeover', S.specId); else socket.emit('use', true); }
   if (e.code === 'KeyG' && alive() && !e.repeat) socket.emit('dropw');          // хвърля оръжието в ръката (или бомбата, ако в ръката няма оръжие)
   if (e.code === 'KeyF' && alive() && !S.me.rl && S.phase !== 'lobby') vmod.inspect(Date.now());
   if (e.code.startsWith('Control') || e.code === 'KeyC') e.preventDefault();
@@ -928,7 +929,7 @@ const voice = initVoice({
   socket, settings,
   getMyId: () => S.id, getPlayers: () => S.lobby?.players || [],
   // право на говорене: в рунд (състезателен режим) само със съотборниците, иначе с всички
-  canTalk: id => { const pl = S.lobby?.players || [], me = pl.find(p => p.id === S.id), o = pl.find(p => p.id === id); if (!me || !o) return false; return !S.inGame || S.mode !== 'comp' || me.team === o.team; },
+  canTalk: id => { const pl = S.lobby?.players || [], me = pl.find(p => p.id === S.id), o = pl.find(p => p.id === id); if (!me || !o) return false; return !S.inGame || !modeOf(S.mode).teams || me.team === o.team; },
   onChange: () => { renderTalk(); if (S.lobby && !S.inGame) onLobby(S.lobby); },
   onError: m => toast(m, 2500),
 });
@@ -953,7 +954,7 @@ const chatEl = $('#chat'), chatLog = $('#chatLog'), chatBox = $('#chatBox'), cha
 function chatInRoom() { return !!S.id && (S.inGame || !$('#lobby').classList.contains('hidden')); }
 function openChat(team) {
   if (!chatInRoom() || S.chatOpen) return;
-  S.chatOpen = true; S.chatTeam = !!team && S.mode === 'comp'; releaseInputs(); S.buyOpen && closeBuy();
+  S.chatOpen = true; S.chatTeam = !!team && modeOf(S.mode).teams; releaseInputs(); S.buyOpen && closeBuy();
   chatTag.textContent = S.chatTeam ? 'Отбор' : 'Всички'; chatTag.style.color = S.chatTeam ? '#7cf08a' : '#fff';
   chatEl.classList.add('open'); chatBox.classList.remove('hidden'); chatInput.value = ''; chatInput.focus(); chatRefresh();
 }
@@ -1231,7 +1232,7 @@ function inSite() {
 let crossGap = 6;
 function updateHud() {
   const s = S.snap, m0 = S.me; if (!s) return;
-  if (S.mode !== 'comp') return updateRunHud(s, m0);
+  if (modeOf(S.mode).race) return updateRunHud(s, m0);
   // мъртъв: HP/броня/патрони/оръжие са на наблюдавания (сървърът ги праща в me.sp)
   const sp0 = !alive() && m0.sp ? m0.sp : null, m = sp0 ? { ...m0, hp: sp0.hp, ar: sp0.ar, w: sp0.w, mag: sp0.mag, res: sp0.res, rl: sp0.rl, kit: sp0.kit, inv: { ...m0.inv, bomb: sp0.bomb, g: sp0.g || {}, n: 0 } } : m0;
   $('#scoreAtt').textContent = s.sc.att; $('#scoreDef').textContent = s.sc.def;
@@ -1278,7 +1279,7 @@ function updateHud() {
 }
 function renderBoard(s) {
   const el = $('#board'); el.classList.remove('hidden');
-  if (S.mode !== 'comp') {
+  if (modeOf(S.mode).race) {
     const lb = s.lb || [];
     el.innerHTML = `<h4>Класация – най-добро време</h4><table><tr><th>Играч</th><th>Време</th></tr>${lb.map((r, i) => `<tr class="${r[2] === S.id ? 'me' : ''}"><td>${i + 1}. ${esc(r[0])}</td><td>${fmtT(r[1])}</td></tr>`).join('') || '<tr><td colspan=2>Още няма завършили</td></tr>'}</table><h4>Играчи</h4>${s.pl.map(p => `<span class="chip ${p.i === S.id ? 'me' : ''}">${esc(p.n)}${p.rs === 1 ? ' ▶' : p.rs === 2 ? ' ✔' : ''}</span>`).join(' ')}`;
     return;

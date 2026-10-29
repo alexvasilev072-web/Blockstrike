@@ -1,6 +1,7 @@
 // Сензорно управление за телефон/таблет: джойстик (движение), плъзгане по екрана (оглеждане) и бутони.
 // Не променя играта: бутоните изпращат същите клавиши/събития като клавиатурата и мишката (синтетични KeyboardEvent/MouseEvent),
 // затова всички проверки (сървърът е авторитетен, движението е в shared/physics.js) са същите.
+import { modeOf } from '/shared/modes.js';
 export const isTouchDevice = () => { try { return matchMedia('(pointer: coarse)').matches || /[?&]touch=1/.test(location.search); } catch { return false; } };
 
 export function initTouch({ S, settings, onMenu }) {
@@ -64,7 +65,7 @@ export function initTouch({ S, settings, onMenu }) {
   // следим дали да се показват: само в игра, когато мишката „е хваната“ (т.е. няма меню/магазин/пауза)
   let enabled = false;
   const setEnabled = on => { enabled = !!on; S.touch = enabled; document.body.classList.toggle('touch', enabled); if (!enabled) { setMove(0, 0); jid = lid = null; base.style.display = knob.style.display = 'none'; for (const c of ['KeyC', 'ControlLeft']) S.keys[c] = false; } root.classList.toggle('off', !enabled || !(S.inGame && S.locked)); };
-  setInterval(() => { root.classList.toggle('off', !enabled || !(S.inGame && S.locked)); root.classList.toggle('run', S.mode !== 'comp'); if (!S.locked && jid !== null) { jid = null; setMove(0, 0); base.style.display = knob.style.display = 'none'; } }, 150);
+  setInterval(() => { root.classList.toggle('off', !enabled || !(S.inGame && S.locked)); root.classList.toggle('run', modeOf(S.mode).race); if (!S.locked && jid !== null) { jid = null; setMove(0, 0); base.style.display = knob.style.display = 'none'; } }, 150);
   // никакво скролиране/приближаване/контекстно меню върху играта
   for (const ev of ['gesturestart', 'contextmenu']) document.addEventListener(ev, e => { if (S.inGame && enabled) e.preventDefault(); });
   return { setEnabled };

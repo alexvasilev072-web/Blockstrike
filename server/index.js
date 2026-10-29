@@ -8,7 +8,8 @@ import { Server } from 'socket.io';
 import { Bot, DIFFS, BOT_NAMES } from './bots.js';
 import { Bsp, boxBlockedBsp, toCs, fromCs, U as BU } from '../shared/bsp.js';
 import { World, BLOCK, SOLID, DESTRUCTIBLE, boxCollides, boxBlocked, traverse } from '../shared/world.js';
-import '../shared/brushes.js';                    // карти от кутии (type: 'brush')
+import '../shared/brushes.js';
+import { GAME_MODES, modeOf } from '../shared/modes.js';       // режимите като таблица (флагове)                    // карти от кутии (type: 'brush')
 import { canUse, NADE, NADE_W, NADE_ORDER, nadePrice, CHARACTERS, cleanChars, WEAPONS, KNIFE, KNIFE_TYPES, MOVE, CFG, recoilAt, spreadFor, inBuyZone } from '../shared/weapons.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -174,7 +175,7 @@ class Room {
 
   // ----- ботове (само в състезателния режим, само в лобито) -----
   addBot(team, diff) {
-    if (this.phase !== 'lobby' || this.run || this.players.size >= this.map.max || !DIFFS[diff]) return null;
+    if (this.phase !== 'lobby' || !this.cfg.bots || this.players.size >= this.map.max || !DIFFS[diff]) return null;
     const used = new Set([...this.players.values()].map(q => q.name));
     const base = BOT_NAMES.filter(n => !used.has(n + ' (бот)')); const nm = (base.length ? base[Math.floor(Math.random() * base.length)] : 'Бот' + (this.botSeq + 1)) + ' (бот)';
     const id = 'bot' + (++this.botSeq) + '_' + Math.random().toString(36).slice(2, 6);
@@ -218,7 +219,8 @@ class Room {
 
   // ----- мач / рунд -----
   // ----- parkour / surf: без отбори и оръжия; таймер, checkpoint-и, класация -----
-  get run() { return this.mode !== 'comp'; }
+  get cfg() { return modeOf(this.mode); }            // флаговете на текущия режим (shared/modes.js)
+  get run() { return this.cfg.race; }                // състезателен режим (parkour/surf): таймер, checkpoint-и
   startRun() {
     const now = Date.now();
     this.round = 1; this.sc = { att: 0, def: 0 }; this.phase = 'live'; this.phaseEnd = now + 1e11; this.roundStart = now; this.liveStart = now;
@@ -299,7 +301,7 @@ class Room {
   }
 
   startMatch() {
-    if (this.run) return this.startRun();
+    if (this.cfg.kind === 'race') return this.startRun();
     this.round = 0;
     this.sc = { att: 0, def: 0 };
     this.streak = { att: 0, def: 0 };
@@ -392,7 +394,7 @@ class Room {
   // „Поеми бота“ (като в CS): мъртъв играч получава тялото, оръжията, здравето и позицията на жив бот от своя отбор; ботът остава мъртъв за този рунд
   takeOver(p, id) {
     const b = this.players.get(id), now = Date.now();
-    if (!b || !b.bot || b.team !== p.team || p.alive || !b.alive || this.phase !== 'live' || this.run || p.bot) return false;
+    if (!b || !b.bot || b.team !== p.team || p.alive || !b.alive || this.phase !== 'live' || !this.cfg.bots || p.bot) return false;
     p.alive = true; p.hp = b.hp; p.armor = b.armor; p.kit = b.kit; p.inv = JSON.parse(JSON.stringify(b.inv)); p.ammo = JSON.parse(JSON.stringify(b.ammo)); p.weapon = b.weapon;
     p.reloadEnd = b.reloadEnd > now ? b.reloadEnd : 0; p.nextShot = now + 300; p.shotIdx = 0; p.lastShot = 0; p.using = false; p.useP = 0; p.useKind = null; p.useStart = null;
     p.x = b.x; p.y = b.y; p.z = b.z; p.yw = b.yw; p.pt = b.pt; p.cr = false; p.g = true; p.wk = false; p.sc = false; p.spd = 0; p.peak = p.y; p.wasAir = false; p.lastTk = null;
@@ -435,14 +437,14 @@ class Room {
   kill(victim, attacker, weapon, head, opts = {}) {
     victim.hp = 0; victim.alive = false; victim.deaths++; victim.using = false; victim.useP = 0;
     if (victim.inv.bomb) this.dropBomb(victim);
-    if (!this.run) for (const slot of ['pr', 'se']) this.dropSlot(victim, slot, false);       // оръжията падат до тялото (с малко разпръскване)
+    if (this.cfg.combat) for (const slot of ['pr', 'se']) this.dropSlot(victim, slot, false);       // оръжията падат до тялото (с малко разпръскване)
     if (attacker && attacker !== victim && attacker.team !== victim.team) {
       attacker.kills++;
       attacker.money = Math.min(CFG.MAX_MONEY, attacker.money + (WEAPONS[weapon]?.reward ?? 300));
     }
     // клиентски ragdoll: накъде и колко силно да падне тялото (оръжията удрят силно, ножът и огънят – слабо; изстрел в главата – по-силно)
     const org = opts.from || (attacker && attacker !== victim ? [attacker.x, attacker.y + 1.5, attacker.z] : null);
-    if (!this.run) {
+    if (this.cfg.combat) {
       let dx = 0, dy = 0.25, dz = 0, f = 0;
       if (org) { dx = victim.x - org[0]; dy = victim.y + 1.1 - org[1]; dz = victim.z - org[2]; const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy = dy / l * 0.5 + 0.3; dz /= l; f = DEATH_FORCE[weapon] ?? 4; if (head) f *= 1.6; }
       this.emit('died', { i: victim.id, x: victim.x, y: victim.y, z: victim.z, dx: +dx.toFixed(3), dy: +dy.toFixed(3), dz: +dz.toFixed(3), f: +f.toFixed(2), hd: head ? 1 : 0 });
@@ -500,14 +502,14 @@ class Room {
   }
   // клавиш G: хвърля оръжието в ръката (основно/пистолет); ако в ръката няма оръжие (нож/граната) – бомбата, ако я носиш
   dropHeld(p) {
-    if (this.run || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return;
+    if (!this.cfg.combat || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return;
     const w = WEAPONS[p.weapon];
     if (w && (w.slot === 'pr' || w.slot === 'se')) { this.dropSlot(p, w.slot, true); return; }
     if (p.inv.bomb) this.throwBomb(p);
   }
   // размяна (E): оръжието от земята заменя това в същия слот; старото пада на мястото на играча
   swapItem(p, itemId) {
-    if (this.run || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return false;
+    if (!this.cfg.combat || !p.alive || (this.phase !== 'live' && this.phase !== 'freeze')) return false;
     const i = this.items.findIndex(q => q.id === itemId); if (i < 0) return false;
     const it = this.items[i], slot = WEAPONS[it.w].slot;
     if (Math.hypot(p.x - it.x, p.z - it.z) > 2.4 || Math.abs(p.y - it.y) > 1.8) return false;
@@ -635,7 +637,7 @@ class Room {
   // burst = true: следващ куршум от серия (Glock в режим „серия“); сървърът го пуска сам, с насочването от първия
   shoot(p, d, burst = false) {
     const now = Date.now();
-    if (this.run || this.phase !== 'live' || !p.alive) return;
+    if (!this.cfg.combat || this.phase !== 'live' || !p.alive) return;
     const w = WEAPONS[p.weapon];
     if (!w || !w.mag) return;
     const am = p.ammo[p.weapon];
@@ -694,7 +696,7 @@ class Room {
   knife(p, d) {
     const now = Date.now();
     if (this.phase !== 'live' || !p.alive || p.weapon !== 'knife') return;
-    if (this.run) { this.emit('knife', { i: p.id, k: d.k === 'r' ? 'r' : 'l', hit: 0, back: 0 }); return; }
+    if (!this.cfg.combat) { this.emit('knife', { i: p.id, k: d.k === 'r' ? 'r' : 'l', hit: 0, back: 0 }); return; }
     if (now < p.nextShot) return this.deny(p, now, p.nextShot - now);
     const kind = d.k === 'r' ? KNIFE.right : KNIFE.left;
     p.nextShot = now + kind.rate * 1000;
@@ -741,7 +743,7 @@ class Room {
   }
 
   buy(p, item) {
-    if (!p.alive || this.run) return;
+    if (!p.alive || !this.cfg.shop) return;
     const inFreeze = this.phase === 'freeze';
     const inLive = this.phase === 'live' && Date.now() - Math.max(this.liveStart || 0, p.readyAt || 0) <= CFG.BUY_TIME * 1000 * TS;
     if (!inFreeze && !inLive) return p.socket.emit('err', 'Времето за купуване изтече');
@@ -776,7 +778,7 @@ class Room {
 
   throwNade(p, d) {
     const kind = NADE[p.weapon];
-    if (this.run || this.phase !== 'live' || !p.alive || !kind || p.inv.g[kind] <= 0) return;
+    if (!this.cfg.combat || this.phase !== 'live' || !p.alive || !kind || p.inv.g[kind] <= 0) return;
     if (Date.now() < p.nextShot) return;
     const f = dirFrom(num(d.yw), clamp(num(d.pt), -1.5, 1.5));
     p.inv.g[kind]--; syncNades(p);
@@ -975,11 +977,11 @@ class Room {
     if (Number.isFinite(tk)) p.lastTk = tk;
     const dEff = dtk !== null ? Math.max(dt, dtk) : dt;
     // допустими скорости по режим: surf стига до 87 м/с, parkour има слуз (13 м/с нагоре) и water jump
-    const LIM = this.map.bsp ? { h: 110, v: 110 } : this.mode === 'surf' ? { h: 95, v: 95 } : this.mode === 'parkour' ? { h: 14, v: 18 } : { h: 13, v: 16 };
+    const LIM = this.map.bsp ? { h: 110, v: 110 } : this.cfg.move;
     if (now - (p.respawnAt || 0) < 120) return;     // позиции, изпратени преди респауна
     const bad = hd > LIM.h * dEff + 0.4 || y - p.y > LIM.v * dEff + 0.5 || (!this.map.bsp && y < -1) || (this.map.bsp ? boxBlockedBsp(this.map.bsp, x, y, z, cr) : boxBlocked(this.world, x, y, z, CFG.HW, H, 0.03));
     if (bad) { p.socket.emit('correct', { x: p.x, y: p.y, z: p.z }); return; }
-    const inst = dtk !== null ? Math.min(hd / dtk, this.mode === 'surf' ? 110 : 14) : Math.min(hd / Math.max(dt, 0.03), this.mode === 'surf' ? 110 : 14);
+    const inst = dtk !== null ? Math.min(hd / dtk, this.cfg.move.inst) : Math.min(hd / Math.max(dt, 0.03), this.cfg.move.inst);
     p.spd = p.spd * 0.5 + inst * 0.5;
     // щети от падане (като в CS: над 580 ед/с)
     const g = !!s.g;
@@ -988,7 +990,7 @@ class Room {
       p.wasAir = false;
       const fall = p.peak - y;
       const inWater = this.world.get(Math.floor(x), Math.floor(y), Math.floor(z)) === BLOCK.water || this.world.get(Math.floor(x), Math.floor(y + 0.5), Math.floor(z)) === BLOCK.water;
-      if (fall > 1 && !inWater && !this.run) {
+      if (fall > 1 && !inWater && this.cfg.fallDamage) {
         const v = Math.sqrt(2 * MOVE.GRAVITY * fall);
         if (v > MOVE.FALL_SAFE) this.hurt(p, null, (v * 40 - 580) * 0.225, 'fall', false, { noArmor: true, ignoreTeam: true });
       }
@@ -998,7 +1000,7 @@ class Room {
     p.yw = num(s.yw); p.pt = clamp(num(s.pt), -1.56, 1.56);
     p.hist.push({ t: now, x, y, z, cr });
     while (p.hist.length && now - p.hist[0].t > 1200) p.hist.shift();
-    if (this.run) this.runState(p, now);
+    if (this.cfg.race) this.runState(p, now);
   }
 
   // ----- тик -----
@@ -1006,7 +1008,7 @@ class Room {
     const dt = clamp((now - this.lastTick) / 1000, 0.001, 0.1);
     this.lastTick = now;
     if (this.phase === 'lobby') return;
-    if (this.run) { this.broadcast(now); return; }
+    if (!this.cfg.rounds) { this.broadcast(now); return; }       // режим без рундове (състезание): само снапшоти
 
     for (const p of this.players.values()) {
       if (p.reloadEnd && now >= p.reloadEnd) {
@@ -1046,7 +1048,7 @@ class Room {
     for (const p of this.players.values())
       pl.push({ i: p.id, n: p.name, tm: p.team, x: r2(p.x), y: r2(p.y), z: r2(p.z), yw: r2(p.yw), pt: r2(p.pt), hp: p.hp, al: p.alive ? 1 : 0, w: p.weapon, k: p.kills, d: p.deaths, cr: p.cr ? 1 : 0, g: p.g ? 1 : 0, wk: p.wk ? 1 : 0, bm: p.inv.bomb ? 1 : 0, po: p.possessedBy ? 1 : 0, sc: p.sc ? 1 : 0, us: p.useP > 0 ? (p.useKind === 'plant' ? 1 : 2) : 0, rs: p.run ? p.run.st : 0, ...(TEST ? { sp: r2(p.spd) } : {}) });
     const snap = {
-      mode: this.mode, lb: this.run ? [...this.best.entries()].map(([id, b]) => [b.name, b.time, id]).sort((a, b) => a[1] - b[1]).slice(0, 10) : undefined,
+      mode: this.mode, lb: this.cfg.race ? [...this.best.entries()].map(([id, b]) => [b.name, b.time, id]).sort((a, b) => a[1] - b[1]).slice(0, 10) : undefined,
       t: now, el: this.roundStart ? Math.round((now - this.roundStart) / 100) / 10 : 0, ph: this.phase, tl: Math.max(0, (this.phaseEnd - now) / 1000), rd: this.round, sc: this.sc, pl,
       bomb: this.bomb ? { s: this.bomb.site, x: this.bomb.x, y: this.bomb.y, z: this.bomb.z, st: this.bomb.exploded ? 'exploded' : this.bomb.defused ? 'defused' : 'planted', tl: this.bomb.exploded || this.bomb.defused ? 0 : Math.max(0, (this.bomb.explodeAt - now) / 1000) } : null,
       bd: this.drop,
@@ -1066,7 +1068,7 @@ class Room {
         bt: this.phase === 'freeze' ? 99 : this.phase === 'live' ? Math.max(0, Math.ceil(CFG.BUY_TIME - (now - Math.max(this.liveStart || 0, p.readyAt || 0)) / 1000 / TS)) : 0,
         us: p.useP > 0 ? { k: p.useKind, p: p.useP / (p.useNeed || 1) } : null,
         bd: p.team === 'att' ? this.drop : null,
-        rn: this.run && p.run ? { st: p.run.st, t0: p.run.t0, tm: p.run.tm, cps: p.cpSet ? p.cpSet.size : 0, total: this.map.cpCount } : null,
+        rn: this.cfg.race && p.run ? { st: p.run.st, t0: p.run.t0, tm: p.run.tm, cps: p.cpSet ? p.cpSet.size : 0, total: this.map.cpCount } : null,
       });
     }
   }
@@ -1090,7 +1092,7 @@ io.on('connection', socket => {
     if (!code) code = makeCode();
     let r = rooms.get(code);
     if (!r) { r = new Room(code); rooms.set(code, r); }
-    if (r.players.size >= CFG.MAX_PLAYERS || (r.phase !== 'lobby' && r.mode === 'comp' && r.players.size >= r.map.max)) return cb({ ok: false, error: 'Стаята е пълна' });
+    if (r.players.size >= CFG.MAX_PLAYERS || (r.phase !== 'lobby' && r.cfg.mapMax && r.players.size >= r.map.max)) return cb({ ok: false, error: 'Стаята е пълна' });
     room = r;
     p = r.addPlayer(socket, name);
     cb({ ok: true, id: p.id, code });
@@ -1099,7 +1101,7 @@ io.on('connection', socket => {
     if (r.phase !== 'lobby') {
       socket.emit('gameStart', { mapId: r.mapId, mode: r.mode, changes: r.changes });
       socket.emit('round', { n: r.round, sc: r.sc, late: true, mapId: r.mapId, mode: r.mode });
-      if (r.run) { r.spawnRun(p, r.players.size); r.sendSpawn(p, false); }
+      if (r.cfg.race) { r.spawnRun(p, r.players.size); r.sendSpawn(p, false); }
     }
   });
 
@@ -1112,23 +1114,23 @@ io.on('connection', socket => {
     room.mapId = id; room.emitLobby();
   });
   socket.on('setMode', m => {
-    if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !['comp', 'parkour', 'surf'].includes(m)) return;
+    if (!room || room.hostId !== p.id || room.phase !== 'lobby' || !GAME_MODES[m]) return;
     room.mode = m;
-    if (m !== 'comp') for (const q of [...room.players.values()]) if (q.bot) room.removePlayer(q.id);       // ботове има само в състезателния режим
+    if (!modeOf(m).bots) for (const q of [...room.players.values()]) if (q.bot) room.removePlayer(q.id);       // ботове има само в режими с флаг bots
     if (MAPS[room.mapId]?.mode !== m) room.mapId = Object.values(MAPS).filter(x => x.mode === m).sort((a, b) => (a.json.order ?? 0) - (b.json.order ?? 0))[0]?.json.id || room.mapId;
     room.emitLobby();
   });
   socket.on('addBot', d => { if (room && p && room.hostId === p.id) room.addBot(d?.team === 'def' ? 'def' : 'att', DIFFS[d?.diff] ? d.diff : 'medium'); });
   socket.on('removeBot', id => { if (room && p && room.hostId === p.id && typeof id === 'string') room.removeBot(id); });
-  socket.on('cp', () => { if (room && p && room.run && p.alive) room.respawnRun(p, 'cp'); });
-  socket.on('restart', () => { if (room && p && room.run && p.alive) room.restartRun(p); });
+  socket.on('cp', () => { if (room && p && room.cfg.race && p.alive) room.respawnRun(p, 'cp'); });
+  socket.on('restart', () => { if (room && p && room.cfg.race && p.alive) room.restartRun(p); });
   socket.on('tolobby', () => {
     if (!room || room.hostId !== p.id || room.phase === 'lobby') return;
     room.phase = 'lobby'; room.nades = []; room.bomb = null; room.drop = null; room.emitLobby();
   });
   socket.on('start', () => {
     if (!room || room.hostId !== p.id || room.phase !== 'lobby') return;
-    if (room.mode === 'comp' && room.players.size > room.map.max) return socket.emit('err', `Тази карта е за най-много ${room.map.max} играчи (${room.map.max / 2} срещу ${room.map.max / 2}). Избери по-голяма карта или махни играчи/ботове.`);
+    if (room.cfg.mapMax && room.players.size > room.map.max) return socket.emit('err', `Тази карта е за най-много ${room.map.max} играчи (${room.map.max / 2} срещу ${room.map.max / 2}). Избери по-голяма карта или махни играчи/ботове.`);
     room.startMatch();
   });
   socket.on('loadout', c => {
@@ -1151,7 +1153,7 @@ io.on('connection', socket => {
     const now = Date.now(); if (now - (p.lastChat || 0) < CFG.CHAT_GAP) return;
     const text = String(d?.t ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '').replace(/\s+/g, ' ').trim().slice(0, CFG.CHAT_MAX);
     if (!text) return; p.lastChat = now;
-    const teamOnly = !!d?.team && room.mode === 'comp', msg = { id: p.id, n: p.name, tm: p.team, team: teamOnly, t: text };
+    const teamOnly = !!d?.team && room.cfg.teams, msg = { id: p.id, n: p.name, tm: p.team, team: teamOnly, t: text };
     if (teamOnly) { for (const q of room.players.values()) if (!q.bot && q.team === p.team) q.socket.emit('chat', msg); }
     else room.emit('chat', msg);
   });
@@ -1166,7 +1168,7 @@ io.on('connection', socket => {
   // кой говори (за индикатора): в рунд само до съотборниците, иначе до всички
   socket.on('vc:talk', on => {
     if (!room || !p) return; const msg = { id: p.id, on: !!on };
-    for (const q of room.players.values()) { if (q.bot || q.id === p.id) continue; if (room.phase !== 'lobby' && room.mode === 'comp' && q.team !== p.team) continue; q.socket.emit('vc:talk', msg); }
+    for (const q of room.players.values()) { if (q.bot || q.id === p.id) continue; if (room.phase !== 'lobby' && room.cfg.teams && q.team !== p.team) continue; q.socket.emit('vc:talk', msg); }
   });
   socket.on('spec', id => { if (p) p.specId = typeof id === 'string' ? id.slice(0, 40) : null; });
   socket.on('takeover', id => { if (room && p && typeof id === 'string') room.takeOver(p, id); });

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node test/physics.mjs && node test/brush.mjs && node test/bots.mjs && node test/nades.mjs && node test/chat.mjs && node test/takeover.mjs && node test/drops.mjs && node test/burst.mjs && node test/smoke.mjs",
+    "test": "node test/physics.mjs && node test/brush.mjs && node test/modes.mjs && node test/bots.mjs && node test/nades.mjs && node test/chat.mjs && node test/takeover.mjs && node test/drops.mjs && node test/burst.mjs && node test/smoke.mjs",
     "validate": "node tools/validate-maps.mjs",
     "maps": "node tools/genterrain.mjs",
     "importbsp": "node tools/importbsp.mjs",

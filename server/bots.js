@@ -302,7 +302,7 @@ export class Bot {
   // ----- главно мислене (на всеки сървърен тик) -----
   update(dt, now) {
     const r = this.room, p = this.p;
-    if (!p.alive || r.phase === 'lobby' || r.run) return;
+    if (!p.alive || r.phase === 'lobby' || !r.cfg.bots) return;
     const inp = this.input; inp.mx = 0; inp.mz = 0; inp.crouch = false; inp.walk = false; inp.jump = false;
     this.fire = false; this.wantUse = false;
     if (r.phase === 'freeze') {
